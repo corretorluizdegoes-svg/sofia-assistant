@@ -14,13 +14,276 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      conversations: {
+        Row: {
+          created_at: string
+          disciplina: string | null
+          id: string
+          modulo_id: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          disciplina?: string | null
+          id?: string
+          modulo_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          disciplina?: string | null
+          id?: string
+          modulo_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      messages: {
+        Row: {
+          content: string
+          conversation_id: string
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mind_map_edges: {
+        Row: {
+          created_at: string
+          id: string
+          is_custom: boolean
+          source_key: string
+          target_key: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_custom?: boolean
+          source_key: string
+          target_key: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_custom?: boolean
+          source_key?: string
+          target_key?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mind_map_nodes: {
+        Row: {
+          created_at: string
+          descricao: string | null
+          glow_color: string
+          id: string
+          is_custom: boolean
+          label: string
+          modulo_id: string | null
+          node_key: string
+          updated_at: string
+          user_id: string
+          x: number
+          y: number
+        }
+        Insert: {
+          created_at?: string
+          descricao?: string | null
+          glow_color?: string
+          id?: string
+          is_custom?: boolean
+          label: string
+          modulo_id?: string | null
+          node_key: string
+          updated_at?: string
+          user_id: string
+          x?: number
+          y?: number
+        }
+        Update: {
+          created_at?: string
+          descricao?: string | null
+          glow_color?: string
+          id?: string
+          is_custom?: boolean
+          label?: string
+          modulo_id?: string | null
+          node_key?: string
+          updated_at?: string
+          user_id?: string
+          x?: number
+          y?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          cidade: string | null
+          codinome: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          language: string
+          publico: boolean
+          social_facebook: string | null
+          social_instagram: string | null
+          social_linkedin: string | null
+          social_x: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          cidade?: string | null
+          codinome?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          language?: string
+          publico?: boolean
+          social_facebook?: string | null
+          social_instagram?: string | null
+          social_linkedin?: string | null
+          social_x?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          cidade?: string | null
+          codinome?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          language?: string
+          publico?: boolean
+          social_facebook?: string | null
+          social_instagram?: string | null
+          social_linkedin?: string | null
+          social_x?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_progress: {
+        Row: {
+          conquistas: string[]
+          created_at: string
+          data_alistamento: string
+          id: string
+          streak_dias: number
+          topicos_explorados: string[]
+          total_mensagens: number
+          ultimo_dia_ativo: string | null
+          updated_at: string
+          user_id: string
+          xp: number
+        }
+        Insert: {
+          conquistas?: string[]
+          created_at?: string
+          data_alistamento?: string
+          id?: string
+          streak_dias?: number
+          topicos_explorados?: string[]
+          total_mensagens?: number
+          ultimo_dia_ativo?: string | null
+          updated_at?: string
+          user_id: string
+          xp?: number
+        }
+        Update: {
+          conquistas?: string[]
+          created_at?: string
+          data_alistamento?: string
+          id?: string
+          streak_dias?: number
+          topicos_explorados?: string[]
+          total_mensagens?: number
+          ultimo_dia_ativo?: string | null
+          updated_at?: string
+          user_id?: string
+          xp?: number
+        }
+        Relationships: []
+      }
+      xp_events: {
+        Row: {
+          created_at: string
+          id: string
+          metadata: Json
+          tipo: string
+          user_id: string
+          xp_ganho: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          metadata?: Json
+          tipo: string
+          user_id: string
+          xp_ganho: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          metadata?: Json
+          tipo?: string
+          user_id?: string
+          xp_ganho?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      registrar_xp: {
+        Args: { _metadata?: Json; _tipo: string; _xp: number }
+        Returns: Json
+      }
+      xp_para_level: { Args: { _xp: number }; Returns: number }
     }
     Enums: {
       [_ in never]: never
