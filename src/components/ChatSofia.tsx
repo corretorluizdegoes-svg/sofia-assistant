@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { Plus, Send, Trash2, BookOpen, User, Sparkles, MessageCircle, Network, Target } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -281,7 +282,15 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-accent border-2 border-card animate-pulse-soft" />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="font-display font-bold text-lg leading-tight text-foreground tracking-tight">S.O.F.I.A.</h1>
+          <Link
+            to="/saiba-mais"
+            className="inline-block hover:opacity-80 transition-opacity"
+            title="Saiba mais sobre a S.O.F.I.A."
+          >
+            <h1 className="font-display font-bold text-lg leading-tight text-foreground tracking-tight hover:text-primary transition-colors cursor-pointer">
+              S.O.F.I.A.
+            </h1>
+          </Link>
           <p className="text-xs text-muted-foreground truncate">
             Sistema Orientado ao Fluxo Integrado de Aprendizado
           </p>
