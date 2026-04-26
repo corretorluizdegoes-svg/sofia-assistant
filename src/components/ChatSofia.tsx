@@ -1,7 +1,10 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
-import { Plus, Send, Trash2, BookOpen, User, Sparkles, MessageCircle, Network, Target } from "lucide-react";
+import {
+  Plus, Send, Trash2, BookOpen, User, Sparkles, MessageCircle, Network, Target,
+  Package, Paperclip, Terminal, X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useProgresso } from "@/hooks/useProgresso";
 import { useToast } from "@/hooks/use-toast";
@@ -13,13 +16,36 @@ import { useAuth } from "@/contexts/AuthContext";
 import { SofiaAvatarIcon, nivelIcon, moduloVisual } from "@/lib/sofia-icons";
 import { useCurriculoI18n } from "@/i18n/curriculo";
 import sofiaAvatarUrl from "@/assets/sofia-avatar.png";
+import { useDevMode } from "@/hooks/useDevMode";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sofia-chat`;
+const DEV_CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sofia-dev-chat`;
 
 type Props = {
   startMessage?: string | null;
   onConsumeStartMessage?: () => void;
 };
+
+// ===== Frases mágicas =====
+const ATIVAR = "estou presente, estamos alinhados";
+const DESATIVAR = "o comando está no centro";
+const RITUAL_LINHAS = [
+  "Pulso do Comandante Detectado.",
+  "Assinatura Soberana validada, íntegra e ativa.",
+  "Bem vindo Comandante Élion.",
+];
+const SAIDA_RITUAL = "Comando devolvido ao Centro. Sofia retorna ao seu papel de mentora.";
+
+/** normaliza pra matching: lowercase, sem pontuação trailing, sem espaços extra */
+function normalizarFrase(s: string): string {
+  return s.toLowerCase().trim().replace(/[.!?,;:\s]+$/g, "").replace(/\s+/g, " ");
+}
+
+function timestampNome(): string {
+  const d = new Date();
+  const p = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
+}
 
 export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   const { t, i18n } = useTranslation();
@@ -39,10 +65,21 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [aberturaFeita, setAberturaFeita] = useState(false);
+  const [arquivoAnexado, setArquivoAnexado] = useState<{ nome: string; conteudo: string } | null>(null);
+  const [gerandoPacote, setGerandoPacote] = useState(false);
+  const [comandSheet, setComandSheet] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { registrarInteracao, nivelAtual, xp, topicosExplorados, conquistas, totalMensagens } = useProgresso();
   const { toast } = useToast();
   const { user } = useAuth();
+  const dev = useDevMode();
+
+  // Conversa ativa é dev?
+  const conversaAtiva = conversas.find((c) => c.id === conversaAtivaId);
+  const ehSessaoDev = conversaAtiva?.is_dev_session === true;
+  const conversasNormais = useMemo(() => conversas.filter((c) => !c.is_dev_session), [conversas]);
+  const conversasDev = useMemo(() => conversas.filter((c) => c.is_dev_session), [conversas]);
 
   const mensagensExibidas: Mensagem[] = mensagens;
 
@@ -62,12 +99,13 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     if (loadingConv || !conversaAtivaId || aberturaFeita || isSending) return;
     if (mensagens.length > 0) return;
     if (startMessage) return;
+    if (ehSessaoDev) return; // dev sessions não disparam abertura pedagógica
 
     setAberturaFeita(true);
     const ehPrimeiroAcesso = (totalMensagens ?? 0) === 0;
     abrirConversa(ehPrimeiroAcesso);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadingConv, conversaAtivaId, mensagens.length, aberturaFeita, isSending, startMessage, totalMensagens]);
+  }, [loadingConv, conversaAtivaId, mensagens.length, aberturaFeita, isSending, startMessage, totalMensagens, ehSessaoDev]);
 
   useEffect(() => {
     setAberturaFeita(false);
@@ -86,6 +124,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     ].filter(Boolean).join(" ");
   }
 
+  // ============= STREAM SOFIA NORMAL =============
   async function streamResposta(
     historico: Mensagem[],
     opts?: { primeiroAcesso?: boolean; resumoAnterior?: string },
@@ -104,7 +143,28 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
         language: i18n.language,
       }),
     });
+    return await consumirSSE(resp);
+  }
 
+  // ============= STREAM SOFIA DEV =============
+  async function streamRespostaDev(historico: Mensagem[]): Promise<string> {
+    const sessionToken = (await supabase.auth.getSession()).data.session?.access_token;
+    const resp = await fetch(DEV_CHAT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionToken ?? ""}`,
+      },
+      body: JSON.stringify({
+        mode: "chat",
+        sessionId: conversaAtivaId,
+        messages: historico.map(({ role, content }) => ({ role, content })),
+      }),
+    });
+    return await consumirSSE(resp);
+  }
+
+  async function consumirSSE(resp: Response): Promise<string> {
     if (resp.status === 429) {
       toast({ title: t("chat.rateLimit"), description: t("chat.rateLimitDesc") });
       throw new Error("rate_limit");
@@ -112,6 +172,10 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     if (resp.status === 402) {
       toast({ title: t("chat.creditsOut"), description: t("chat.creditsOutDesc") });
       throw new Error("payment_required");
+    }
+    if (resp.status === 403) {
+      toast({ title: "Acesso negado", description: "Sessão inválida pro Modo Comandante." });
+      throw new Error("forbidden");
     }
     if (!resp.ok || !resp.body) throw new Error("Falha ao iniciar o stream");
 
@@ -164,8 +228,9 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     if (!user || !conversaAtivaId) return null;
     const { data: convs } = await supabase
       .from("conversations")
-      .select("id, title, disciplina")
+      .select("id, title, disciplina, is_dev_session")
       .eq("user_id", user.id)
+      .eq("is_dev_session", false)
       .neq("id", conversaAtivaId)
       .order("updated_at", { ascending: false })
       .limit(1);
@@ -195,9 +260,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     setIsSending(true);
     try {
       let resumo: string | null = null;
-      if (!ehPrimeiroAcesso) {
-        resumo = await buscarResumoAnterior();
-      }
+      if (!ehPrimeiroAcesso) resumo = await buscarResumoAnterior();
       const respostaCompleta = await streamResposta([], {
         primeiroAcesso: ehPrimeiroAcesso || !resumo,
         resumoAnterior: resumo ?? undefined,
@@ -212,43 +275,88 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     }
   }
 
+  // ============= ATIVAÇÃO / DESATIVAÇÃO RITUAL =============
+  async function tratarFraseMagica(textoOriginal: string): Promise<boolean> {
+    const norm = normalizarFrase(textoOriginal);
+    // Ativação — só funciona se for admin
+    if (norm === ATIVAR) {
+      if (!dev.isAdmin) return false; // ignora silenciosamente, vira mensagem normal
+      const userMsg: Mensagem = { role: "user", content: textoOriginal };
+      setMensagensLocal((prev) => [...prev, userMsg]);
+      setInput("");
+      await salvarMensagem(userMsg);
+      const resposta = RITUAL_LINHAS.join("\n");
+      setMensagensLocal((prev) => [...prev, { role: "assistant", content: resposta }]);
+      await salvarMensagem({ role: "assistant", content: resposta });
+      dev.activate();
+      return true;
+    }
+    // Desativação — só processa se já estiver ativo
+    if (norm === DESATIVAR && dev.active) {
+      const userMsg: Mensagem = { role: "user", content: textoOriginal };
+      setMensagensLocal((prev) => [...prev, userMsg]);
+      setInput("");
+      await salvarMensagem(userMsg);
+      setMensagensLocal((prev) => [...prev, { role: "assistant", content: SAIDA_RITUAL }]);
+      await salvarMensagem({ role: "assistant", content: SAIDA_RITUAL });
+      dev.deactivate();
+      return true;
+    }
+    return false;
+  }
+
+  // ============= ENVIO PRINCIPAL =============
   async function enviarTexto(texto: string) {
     if (!texto || isSending || !conversaAtivaId) return;
 
-    const userMsg: Mensagem = { role: "user", content: texto };
+    // 1. Frases mágicas têm prioridade absoluta
+    const tratado = await tratarFraseMagica(texto);
+    if (tratado) return;
+
+    // 2. Monta envelope com arquivo anexado se houver
+    let conteudoFinal = texto;
+    if (arquivoAnexado && dev.active) {
+      conteudoFinal = `[ARQUIVO ANEXADO: ${arquivoAnexado.nome}]\n\n${arquivoAnexado.conteudo}\n\n[FIM DO ARQUIVO]\n\n${texto}`;
+    }
+
+    const userMsg: Mensagem = { role: "user", content: conteudoFinal };
     const historicoCompleto: Mensagem[] = [...mensagens, userMsg];
 
     setMensagensLocal((prev) => [...prev, userMsg]);
     setInput("");
+    setArquivoAnexado(null);
     setIsSending(true);
 
     await salvarMensagem(userMsg);
 
-    const resultado = await registrarInteracao(texto);
-
-    if (resultado.modulosDetectados.length >= 2) {
-      const nomes = resultado.modulosDetectados
-        .map((id) => curr.moduloNome(id, modulos.find((m) => m.id === id)?.nome ?? id))
-        .filter(Boolean)
-        .slice(0, 3)
-        .join(" • ");
-      toast({
-        title: t("chat.nonLinearTitle"),
-        description: nomes ? t("chat.nonLinearDesc", { names: nomes }) : undefined,
-      });
-    }
-
-    if (resultado.novoNivel) {
-      const novo = niveis.find((n) => n.nivel === resultado.levelAtual);
-      if (novo) {
-        toast({ title: t("chat.newHorizon", { name: curr.nivelNome(novo.nome) }), description: novo.descricao });
+    // Sessão dev: NÃO conta XP, NÃO detecta módulos
+    if (!ehSessaoDev) {
+      const resultado = await registrarInteracao(texto);
+      if (resultado.modulosDetectados.length >= 2) {
+        const nomes = resultado.modulosDetectados
+          .map((id) => curr.moduloNome(id, modulos.find((m) => m.id === id)?.nome ?? id))
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(" • ");
+        toast({
+          title: t("chat.nonLinearTitle"),
+          description: nomes ? t("chat.nonLinearDesc", { names: nomes }) : undefined,
+        });
+      }
+      if (resultado.novoNivel) {
+        const novo = niveis.find((n) => n.nivel === resultado.levelAtual);
+        if (novo) {
+          toast({ title: t("chat.newHorizon", { name: curr.nivelNome(novo.nome) }), description: novo.descricao });
+        }
       }
     }
 
     try {
-      const respostaCompleta = await streamResposta(historicoCompleto);
-      if (respostaCompleta.trim()) {
-        await salvarMensagem({ role: "assistant", content: respostaCompleta });
+      const resposta = ehSessaoDev
+        ? await streamRespostaDev(historicoCompleto)
+        : await streamResposta(historicoCompleto);
+      if (resposta.trim()) {
+        await salvarMensagem({ role: "assistant", content: resposta });
       }
     } catch (err) {
       console.error(err);
@@ -265,6 +373,96 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   async function enviar(e: FormEvent) {
     e.preventDefault();
     await enviarTexto(input.trim());
+  }
+
+  // ============= NOVA CONVERSA — abre dev se modo ativo =============
+  async function novaConversa() {
+    if (dev.active) {
+      await criarConversa({ title: "Sessão de Comando", is_dev_session: true });
+    } else {
+      await criarConversa();
+    }
+  }
+
+  // ============= UPLOAD DE ARQUIVO (modo dev) =============
+  async function handleArquivo(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    const ext = f.name.toLowerCase().split(".").pop() ?? "";
+    const okExt = ["json", "txt", "md"].includes(ext);
+    const okMime = /^(application\/json|text\/(plain|markdown|x-markdown))$/i.test(f.type) || f.type === "";
+    if (!okExt || !okMime) {
+      toast({ title: "Formato inválido", description: "Apenas .json, .txt ou .md." });
+      return;
+    }
+    if (f.size > 500 * 1024) {
+      toast({ title: "Arquivo grande demais", description: "Máximo 500KB." });
+      return;
+    }
+    const conteudo = await f.text();
+    setArquivoAnexado({ nome: f.name, conteudo });
+    toast({ title: "Arquivo anexado", description: f.name });
+  }
+
+  // ============= GERAR PACOTE =============
+  async function gerarPacote() {
+    if (!conversaAtivaId || gerandoPacote) return;
+    if (mensagens.length < 2) {
+      toast({ title: "Sessão muito curta", description: "Converse um pouco antes de gerar o pacote." });
+      return;
+    }
+    setGerandoPacote(true);
+    try {
+      const sessionToken = (await supabase.auth.getSession()).data.session?.access_token;
+      const resp = await fetch(DEV_CHAT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken ?? ""}`,
+        },
+        body: JSON.stringify({
+          mode: "synthesize",
+          sessionId: conversaAtivaId,
+          messages: mensagens.map(({ role, content }) => ({ role, content })),
+        }),
+      });
+      if (!resp.ok) {
+        const t = await resp.text();
+        console.error("[gerarPacote] erro", resp.status, t);
+        toast({ title: "Falha na síntese", description: `HTTP ${resp.status}` });
+        return;
+      }
+      const data = await resp.json();
+      const ts = timestampNome();
+      baixarBlob(`sofia_brief_${ts}.txt`, "text/plain;charset=utf-8", data.brief_txt ?? "");
+      baixarBlob(
+        `sofia_changes_${ts}.json`,
+        "application/json;charset=utf-8",
+        JSON.stringify(data.changes_json ?? {}, null, 2),
+      );
+      toast({
+        title: "Pacote gerado",
+        description: "Comandante, o sistema aguarda suas decisões.",
+      });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erro inesperado", description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setGerandoPacote(false);
+    }
+  }
+
+  function baixarBlob(nome: string, mime: string, conteudo: string) {
+    const blob = new Blob([conteudo], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nome;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   const NivelIcon = nivelIcon(nivelAtual.nivel);
@@ -287,8 +485,14 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
             className="inline-block hover:opacity-80 transition-opacity"
             title="Saiba mais sobre a S.O.F.I.A."
           >
-            <h1 className="font-display font-bold text-lg leading-tight text-foreground tracking-tight hover:text-primary transition-colors cursor-pointer">
+            <h1 className="font-display font-bold text-lg leading-tight text-foreground tracking-tight hover:text-primary transition-colors cursor-pointer inline-flex items-center gap-2">
               S.O.F.I.A.
+              {dev.active && (
+                <span className="inline-flex items-center gap-1 tone-violet rounded-full px-2 py-0.5 text-[10px] font-bold tracking-widest animate-pulse-soft">
+                  <Terminal className="w-2.5 h-2.5" strokeWidth={2.5} />
+                  MODO COMANDANTE
+                </span>
+              )}
             </h1>
           </Link>
           <p className="text-xs text-muted-foreground truncate">
@@ -299,22 +503,35 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           <NivelIcon className="w-3.5 h-3.5" strokeWidth={1.75} />
           {nivelAtual.nome}
         </div>
+        {dev.active && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={gerarPacote}
+            disabled={gerandoPacote}
+            className="rounded-full text-violet-600 hover:bg-violet-50"
+            title="Gerar Pacote (brief + changes.json)"
+          >
+            <Package className="w-4 h-4" strokeWidth={1.75} />
+            <span className="hidden sm:inline text-xs">{gerandoPacote ? "Gerando…" : "Gerar Pacote"}</span>
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => criarConversa()}
+          onClick={novaConversa}
           className="rounded-full text-slate-500 hover:text-primary hover:bg-primary/5"
-          title={t("chat.new")}
+          title={dev.active ? "Nova Sessão de Comando" : t("chat.new")}
         >
           <Plus className="w-4 h-4" strokeWidth={1.75} />
           <span className="hidden sm:inline text-xs">{t("chat.new")}</span>
         </Button>
       </header>
 
-      {/* Lista de conversas */}
-      {conversas.length > 0 && (
+      {/* Lista de conversas — só normais por padrão. Dev sessions ficam num drawer separado pro admin. */}
+      {(conversasNormais.length > 0 || (dev.isAdmin && conversasDev.length > 0)) && (
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/40 bg-white/30 overflow-x-auto scrollbar-soft">
-          {conversas.map((c: Conversa) => {
+          {conversasNormais.map((c: Conversa) => {
             const ativa = c.id === conversaAtivaId;
             return (
               <div
@@ -333,11 +550,59 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
                   {c.disciplina && <BookOpen className="w-3 h-3" strokeWidth={1.75} />}
                   {c.disciplina ? curr.disciplinaNome(c.disciplina) : c.title}
                 </button>
-                {ativa && conversas.length > 1 && (
+                {ativa && conversasNormais.length > 1 && (
                   <button
                     onClick={() => apagarConversa(c.id)}
                     className="pr-2 opacity-70 hover:opacity-100"
                     aria-label={t("chat.deleteAria")}
+                  >
+                    <Trash2 className="w-3 h-3" strokeWidth={1.75} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {dev.isAdmin && conversasDev.length > 0 && (
+            <button
+              onClick={() => setComandSheet((v) => !v)}
+              className="ml-auto shrink-0 inline-flex items-center gap-1.5 rounded-full tone-violet px-3 py-1.5 text-xs font-semibold"
+              title="Sessões de Comando"
+            >
+              <Terminal className="w-3 h-3" strokeWidth={2} />
+              Sessões de Comando ({conversasDev.length})
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Drawer de sessões de comando */}
+      {dev.isAdmin && comandSheet && (
+        <div className="border-b border-violet-200/60 bg-violet-50/40 px-3 py-2 flex items-center gap-2 overflow-x-auto scrollbar-soft">
+          <span className="shrink-0 text-[10px] tracking-widest text-violet-700/80 font-bold pr-1">SESSÕES</span>
+          {conversasDev.map((c) => {
+            const ativa = c.id === conversaAtivaId;
+            return (
+              <div
+                key={c.id}
+                className={`group flex items-center gap-1 shrink-0 rounded-full text-xs ${
+                  ativa
+                    ? "bg-violet-600 text-white shadow-soft"
+                    : "bg-white/80 text-violet-800 border border-violet-200 hover:bg-white"
+                }`}
+              >
+                <button
+                  onClick={() => trocarConversa(c.id)}
+                  className="px-3 py-1.5 max-w-[200px] truncate inline-flex items-center gap-1.5"
+                  title={c.title}
+                >
+                  <Terminal className="w-3 h-3" strokeWidth={2} />
+                  {c.title}
+                </button>
+                {ativa && (
+                  <button
+                    onClick={() => apagarConversa(c.id)}
+                    className="pr-2 opacity-70 hover:opacity-100"
+                    aria-label="Apagar sessão"
                   >
                     <Trash2 className="w-3 h-3" strokeWidth={1.75} />
                   </button>
@@ -353,7 +618,9 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
         {loadingConv ? (
           <div className="text-center text-sm text-muted-foreground">{t("chat.loading")}</div>
         ) : mensagensExibidas.length === 0 && !isSending ? (
-          <WelcomeCards onPick={(msg) => enviarTexto(msg)} />
+          ehSessaoDev
+            ? <DevWelcome />
+            : <WelcomeCards onPick={(msg) => enviarTexto(msg)} />
         ) : (
           mensagensExibidas.map((m, i) => <MessageBubble key={m.id ?? i} msg={m} />)
         )}
@@ -374,9 +641,49 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
         )}
       </div>
 
+      {/* Anexo preview */}
+      {arquivoAnexado && dev.active && (
+        <div className="mx-4 mb-2 rounded-xl bg-violet-50 border border-violet-200 px-3 py-2 flex items-center gap-2 text-xs text-violet-800">
+          <Paperclip className="w-3.5 h-3.5" />
+          <span className="flex-1 truncate font-mono">{arquivoAnexado.nome}</span>
+          <button
+            onClick={() => setArquivoAnexado(null)}
+            className="opacity-70 hover:opacity-100"
+            aria-label="Remover anexo"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Input flutuante */}
       <form onSubmit={enviar} className="px-3 sm:px-4 pb-4 pt-2">
-        <div className="flex items-end gap-2 bg-white rounded-full border border-border/70 focus-within:border-primary/50 focus-within:shadow-glow shadow-soft transition-all pl-5 pr-2 py-2">
+        <div
+          className={`flex items-end gap-2 bg-white rounded-full border focus-within:shadow-glow shadow-soft transition-all pl-5 pr-2 py-2 ${
+            dev.active
+              ? "border-violet-300 ring-1 ring-[hsl(var(--primary-glow))]/40 focus-within:border-violet-400"
+              : "border-border/70 focus-within:border-primary/50"
+          }`}
+        >
+          {dev.active && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,.txt,.md,application/json,text/plain,text/markdown"
+                onChange={handleArquivo}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Anexar .json, .txt ou .md (max 500KB)"
+                className="shrink-0 w-9 h-9 rounded-full bg-violet-50 text-violet-700 hover:bg-violet-100 flex items-center justify-center transition-colors"
+              >
+                <Paperclip className="w-4 h-4" strokeWidth={1.75} />
+              </button>
+            </>
+          )}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -388,23 +695,45 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
             }}
             rows={1}
             disabled={isSending || loadingConv}
-            placeholder={t("chat.placeholder")}
+            placeholder={dev.active ? "modo comandante — fale técnico" : t("chat.placeholder")}
             className="flex-1 resize-none bg-transparent outline-none text-sm sm:text-base text-foreground placeholder:text-muted-foreground/70 max-h-40 py-2"
           />
           <button
             type="submit"
             disabled={!input.trim() || isSending}
-            className="shrink-0 w-10 h-10 rounded-full bg-gradient-primary text-white flex items-center justify-center shadow-soft hover:shadow-glow disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:scale-105"
+            className={`shrink-0 w-10 h-10 rounded-full text-white flex items-center justify-center shadow-soft hover:shadow-glow disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:scale-105 ${
+              dev.active ? "bg-violet-600 hover:bg-violet-700" : "bg-gradient-primary"
+            }`}
             aria-label={t("common.send")}
           >
             <Send className="w-4 h-4" strokeWidth={1.75} />
           </button>
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground/80 text-center">
-          {t("chat.footer")}
+          {dev.active
+            ? "Modo Comandante ativo — sessões não contam XP, não aparecem no histórico normal."
+            : t("chat.footer")}
         </p>
       </form>
     </section>
+  );
+}
+
+function DevWelcome() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-full py-6 animate-fade-in text-center">
+      <div className="w-14 h-14 rounded-3xl tone-violet mx-auto mb-4 flex items-center justify-center">
+        <Terminal className="w-6 h-6" strokeWidth={2} />
+      </div>
+      <h2 className="font-display font-bold text-2xl text-foreground tracking-tight mb-2">
+        Modo Comandante
+      </h2>
+      <p className="text-sm text-muted-foreground max-w-md">
+        Sofia agora é consultora técnica do próprio sistema. Descreva o que precisa
+        revisar — bugs, UX, estrutura. Quando estiver pronto, peça <em>"gerar pacote"</em>
+        {" "}ou clique no botão <strong>Gerar Pacote</strong> no topo.
+      </p>
+    </div>
   );
 }
 
@@ -482,6 +811,41 @@ function WelcomeCards({ onPick }: { onPick: (msg: string) => void }) {
 
 function MessageBubble({ msg }: { msg: Mensagem }) {
   const isUser = msg.role === "user";
+  // Detecta resposta ritual de ativação para tratamento especial
+  const ehRitual = !isUser && RITUAL_LINHAS.every((l) => msg.content.includes(l));
+
+  if (ehRitual) {
+    return (
+      <div className="flex items-end gap-3 animate-fade-in">
+        <img
+          src={sofiaAvatarUrl}
+          alt="S.O.F.I.A."
+          className="w-9 h-9 rounded-full object-cover shadow-soft shrink-0 ring-1 ring-primary/20"
+          loading="lazy"
+        />
+        <div className="max-w-[80%] rounded-3xl rounded-bl-md px-5 py-4 shadow-elevated glass-strong border border-violet-200/60">
+          {RITUAL_LINHAS.map((linha, i) => (
+            <p
+              key={i}
+              className="text-sm sm:text-[15px] leading-relaxed font-medium opacity-0 animate-fade-in"
+              style={{ animationDelay: `${i * 300}ms`, animationFillMode: "forwards" }}
+            >
+              {linha.includes("Comandante Élion") ? (
+                <>
+                  {linha.split("Comandante Élion")[0]}
+                  <span className="text-gradient-primary font-bold">Comandante Élion</span>
+                  {linha.split("Comandante Élion")[1]}
+                </>
+              ) : (
+                linha
+              )}
+            </p>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex items-end gap-3 animate-fade-in ${isUser ? "justify-end" : ""}`}>
       {!isUser && (

@@ -19,6 +19,7 @@ export type Database = {
           created_at: string
           disciplina: string | null
           id: string
+          is_dev_session: boolean
           modulo_id: string | null
           title: string
           updated_at: string
@@ -28,6 +29,7 @@ export type Database = {
           created_at?: string
           disciplina?: string | null
           id?: string
+          is_dev_session?: boolean
           modulo_id?: string | null
           title?: string
           updated_at?: string
@@ -37,6 +39,7 @@ export type Database = {
           created_at?: string
           disciplina?: string | null
           id?: string
+          is_dev_session?: boolean
           modulo_id?: string | null
           title?: string
           updated_at?: string
