@@ -1,0 +1,2 @@
+ALTER TABLE public.conversations ADD COLUMN IF NOT EXISTS is_dev_session boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_conversations_user_dev ON public.conversations(user_id, is_dev_session);
