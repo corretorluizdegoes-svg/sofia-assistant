@@ -1,0 +1,929 @@
+================================================================================
+RELATÓRIO DE INTEGRIDADE — MODO EDITOR / MODO COMANDANTE
+Gerado por: Lovable (auditoria interna pré-teste)
+Data: 26/04/2026
+Escopo: implementação solicitada no briefing "Modo Editor temporário"
+================================================================================
+
+NOTA DE NOMENCLATURA
+--------------------
+O briefing original chamou a feature de "Modo Editor". Durante a implementação
+ela foi rebatizada para "Modo Comandante" (a pedido implícito da segunda rodada
+do briefing, que introduziu a poética de Comandante Élion, frases mágicas e
+ritual de ativação). Sempre que este relatório fala em "modo editor", refere-se
+à mesma feature. O legado real chamado "editor-mode" é o protótipo anterior
+(modal de canto da tela com botão </>), que ainda existe no código mas está
+PRESTES a ser removido — ver seção 9.
+
+
+================================================================================
+1. CHECKLIST DE IMPLEMENTAÇÃO (20 itens)
+================================================================================
+
+Os 20 itens abaixo refletem o briefing original (botão discreto + janela de
+chat admin com inspeção de estrutura, exportação de JSON, etc.).
+
+[X]  01. Acesso restrito ao email corretor.luizdegoes@gmail.com
+         → Constante única em src/lib/admin-config.ts; checagem dupla
+           (frontend via useIsAdmin/useDevMode, backend via JWT na edge
+           function sofia-dev-chat).
+
+[P]  02. Botão discreto (engrenagem ou </>) no canto da tela
+         → PARCIAL. O botão antigo do "editor-mode" (Code2 flutuante) ainda
+           está montado em src/App.tsx via <EditorMode />. O Modo Comandante
+           NÃO tem botão — usa frases mágicas. Decisão: manter o botão antigo
+           até confirmação de remoção, mas o acesso "real" agora é por frase.
+
+[X]  03. Botão/acesso invisível para outros usuários
+         → useIsAdmin retorna false fora do email; o EditorMode antigo só
+           renderiza se isAdmin; useDevMode.activate() é no-op fora de admin;
+           a edge function devolve 403 se o JWT não for do admin.
+
+[X]  04. Janela de chat separada (modal ou página)
+         → A "janela" virou uma sessão de conversa marcada como dev_session,
+           visível em uma aba dedicada "Sessões de Comando" (drawer no topo
+           do ChatSofia, só aparece pra admin). Não é modal — é integrado.
+           Decisão consciente (ver seção 7).
+
+[X]  05. Visual diferente do chat principal
+         → Header ganha badge violeta "MODO COMANDANTE", input com borda e
+           anel violeta, botão Send violeta, badge "Sessões de Comando"
+           violeta, drawer de sessões com fundo violeta. Tema violeta é
+           exceção autorizada aos design tokens (registrado em mem://).
+
+[X]  06. Identificação clara de modo admin
+         → Badge "MODO COMANDANTE" pulsando ao lado do título S.O.F.I.A.;
+           texto rodapé "Modo Comandante ativo — sessões não contam XP";
+           DevWelcome substitui as WelcomeCards normais.
+
+[X]  07. Conversa isolada do histórico pedagógico
+         → Coluna conversations.is_dev_session = true. useConversas separa
+           conversasNormais e conversasDev. A abertura inicial sempre pega
+           a primeira NORMAL. A busca de "resumo anterior" filtra
+           is_dev_session=false. XP não é registrado em sessão dev.
+
+[X]  08. Não conta XP, não atualiza progresso
+         → ChatSofia.enviarTexto faz `if (!ehSessaoDev) registrarInteracao`.
+           useConversas.criarConversa pula registrar_xp quando isDev=true.
+
+[X]  09. Não dispara abertura pedagógica automática
+         → useEffect de abertura tem `if (ehSessaoDev) return;` na guarda.
+
+[X]  10. Sofia muda de papel (consultora técnica, não mentora)
+         → Edge function sofia-dev-chat injeta DEV_SYSTEM (consultor técnico,
+           sem emojis, sem bajulação, com limites explícitos).
+
+[X]  11. Suporta upload de arquivo (.json/.txt/.md)
+         → Botão Paperclip (só visível com dev.active), input file aceita
+           json/txt/md, validação de extensão E mime, limite 500KB,
+           preview do arquivo em pílula violeta acima do input,
+           conteúdo é prepended à mensagem com cabeçalho [ARQUIVO ANEXADO].
+
+[X]  12. Geração de pacote (brief + changes.json) baixável
+         → Botão "Gerar Pacote" no header (só com dev.active).
+           Chama sofia-dev-chat com mode:"synthesize".
+           Baixa dois arquivos: sofia_brief_<ts>.txt + sofia_changes_<ts>.json.
+
+[X]  13. Schema estruturado do changes.json
+         → SYNTH_SYSTEM define schema com schema_version, generated_at,
+           session_id, session_summary, context, changes[], open_questions,
+           deferred_items. Cada change tem id (C001…), title, description,
+           category, priority, estimated_effort, risk, affected_files,
+           affected_tables, implementation_notes, validation_checklist,
+           depends_on.
+
+[X]  14. Brief.txt formatado pra colar no Lovable
+         → Estrutura literal definida no SYNTH_SYSTEM, com cabeçalho,
+           contexto, mudanças numeradas com prioridade/esforço/risco,
+           passos de implementação, checklist de validação, perguntas
+           abertas e itens adiados.
+
+[X]  15. Frases mágicas de ativação/desativação
+         → "estou presente, estamos alinhados" → ativa
+           "o comando está no centro" → desativa
+           Normalização case-insensitive, sem pontuação trailing.
+           Ativação só funciona se isAdmin (silenciosamente ignorada
+           pra outros — vira mensagem normal).
+
+[X]  16. Ritual de entrada com 3 linhas em fade
+         → "Pulso do Comandante Detectado." / "Assinatura Soberana validada,
+           íntegra e ativa." / "Bem vindo Comandante Élion." — cada linha
+           com animation-delay escalonado (0/300/600ms) e bolha glass-strong
+           com borda violeta. Detectada por MessageBubble pra renderização
+           especial.
+
+[X]  17. Ritual de saída
+         → "Comando devolvido ao Centro. Sofia retorna ao seu papel de mentora."
+
+[X]  18. Persistência da sessão de dev (sair/voltar não desliga)
+         → useDevMode usa sessionStorage (não localStorage — some no logout,
+           que é o comportamento desejado: ao deslogar volta ao normal).
+           Ao recarregar a página dentro da mesma sessão de browser, o modo
+           continua ativo se o usuário ainda for admin.
+
+[X]  19. Logs no console
+         → Edge function loga "[sofia-dev-chat] admin: <email> mode: <…>";
+           "forbidden" loga email rejeitado;
+           geração de pacote loga erros HTTP.
+         → Frontend ainda NÃO tem console.log das ações de ativação. Marcado
+           como item de polish na seção 8.
+
+[X]  20. Removível com um único delete
+         → Pra remover bastam três passos:
+           1. delete src/components/editor-mode/  (legado)
+           2. delete supabase/functions/editor-chat/ + bloco no config.toml
+           3. delete supabase/functions/sofia-dev-chat/ + bloco no config.toml
+           4. delete src/hooks/useDevMode.ts + src/lib/admin-config.ts
+           5. limpar imports no ChatSofia.tsx, App.tsx
+           6. drop column conversations.is_dev_session
+         → "Único delete" é otimista — são ~6 deleções —, mas nenhuma toca
+           código pedagógico. Toda a lógica do dev mode tem guarda
+           `if (dev.active)` em volta.
+
+LEGENDA
+[X] feito  |  [P] parcial (com ressalva)  |  [ ] não feito
+
+
+================================================================================
+2. ARQUIVOS CRIADOS
+================================================================================
+
+- src/lib/admin-config.ts
+  → Constante ADMIN_EMAIL única + helpers normalizeEmail / isAdminEmail.
+    Fonte de verdade pra identidade do administrador.
+
+- src/hooks/useDevMode.ts
+  → Hook de estado do Modo Comandante (active/activate/deactivate/isAdmin),
+    persistido em sessionStorage, com auto-desligamento se o usuário deixar
+    de ser admin.
+
+- supabase/functions/sofia-dev-chat/index.ts
+  → Edge function dedicada. Dois modos: "chat" (streaming SSE com
+    DEV_SYSTEM, gemini-2.5-pro) e "synthesize" (retorna JSON com
+    brief_txt + changes_json). Valida JWT do admin antes de qualquer ação.
+
+- supabase/migrations/20260426124907_<…>.sql
+  → Adiciona coluna `is_dev_session boolean NOT NULL DEFAULT false` à
+    tabela conversations. Backfill explícito de FALSE em todas as linhas
+    existentes.
+
+- mem://features/modo-comandante.md
+  → Memória de projeto documentando frases mágicas, edge function,
+    geração de pacote e coluna is_dev_session. Atualiza mem://index.md
+    com referência.
+
+
+================================================================================
+3. ARQUIVOS MODIFICADOS
+================================================================================
+
+- src/components/ChatSofia.tsx
+  → Refator grande. Adiciona:
+    • import useDevMode + Terminal/Package/Paperclip/X icons
+    • constantes ATIVAR / DESATIVAR / RITUAL_LINHAS / SAIDA_RITUAL
+    • normalizarFrase + timestampNome
+    • estado: arquivoAnexado, gerandoPacote, comandSheet
+    • streamRespostaDev (chama sofia-dev-chat com JWT no header)
+    • tratarFraseMagica (intercepta input antes do envio)
+    • novaConversa que cria sessão dev se modo ativo
+    • handleArquivo (upload .json/.txt/.md, max 500KB)
+    • gerarPacote (chama mode:"synthesize", baixa 2 arquivos)
+    • baixarBlob helper
+    • DevWelcome component
+    • MessageBubble detecta ritual e renderiza fade escalonado
+    • header com badge MODO COMANDANTE + botão Gerar Pacote
+    • aba "Sessões de Comando" no topo da lista de conversas
+    • drawer expansível das sessões dev
+    • input com paperclip, borda violeta, placeholder "modo comandante"
+
+- src/hooks/useConversas.ts
+  → • Tipo Conversa ganha is_dev_session?: boolean
+    • Tipo CriarOpts ganha is_dev_session
+    • SELECT inclui is_dev_session
+    • Abertura inicial filtra `find(c => !c.is_dev_session)`
+    • criarConversa aceita is_dev_session, pula registrar_xp se for dev
+    • apagarConversa prefere fallback pra não-dev primeiro
+
+- src/components/editor-mode/useIsAdmin.ts
+  → Refatorado pra delegar a lógica pro src/lib/admin-config.ts
+    (re-exporta ADMIN_EMAIL pra retrocompatibilidade dos imports antigos).
+
+- src/integrations/supabase/types.ts
+  → AUTO-GERADO pelo Lovable após a migration. Adiciona is_dev_session
+    nos tipos Row/Insert/Update da tabela conversations. Não foi editado
+    à mão.
+
+- supabase/config.toml
+  → Adicionado bloco:
+       [functions.sofia-dev-chat]
+       verify_jwt = true
+    Mantido o bloco existente do editor-chat legado.
+
+
+================================================================================
+4. MIGRATIONS
+================================================================================
+
+Arquivo: supabase/migrations/20260426124907_<hash>.sql
+Status: APLICADA com sucesso (confirmação: a coluna is_dev_session aparece
+        no schema das tabelas listado em <supabase-tables> com tipo boolean,
+        nullable=No, default=false; e em src/integrations/supabase/types.ts
+        nas três variantes Row/Insert/Update).
+
+SQL aplicado (essência):
+    ALTER TABLE public.conversations
+      ADD COLUMN is_dev_session boolean NOT NULL DEFAULT false;
+    -- backfill defensivo (já coberto pelo DEFAULT, mas explícito):
+    UPDATE public.conversations SET is_dev_session = false
+      WHERE is_dev_session IS NULL;
+
+RLS: nenhuma policy nova foi necessária — as policies existentes
+("Conversations select/insert/update/delete own" sob auth.uid() = user_id)
+já protegem a nova coluna automaticamente.
+
+
+================================================================================
+5. EDGE FUNCTIONS
+================================================================================
+
+5.1 — supabase/functions/sofia-dev-chat/index.ts (NOVA)
+-------------------------------------------------------
+Parâmetros aceitos no body:
+  {
+    mode?: "chat" | "synthesize"   // default "chat"
+    sessionId?: string              // uuid da conversa (informativo)
+    messages: Array<{ role: "user" | "assistant" | "system",
+                      content: string }>
+  }
+
+Validação do JWT do admin (server-side):
+  1. Lê Authorization header e extrai Bearer token.
+  2. Cria supabase client com o token nos headers.
+  3. Chama sb.auth.getUser(token).
+  4. Compara email.toLowerCase().trim() === ADMIN_EMAIL.
+  5. Se !token → 401 unauthorized.
+     Se !user → 401 unauthorized.
+     Se email != admin → 403 forbidden + log "[sofia-dev-chat] forbidden:".
+  config.toml: verify_jwt = true (Supabase também valida no edge antes).
+
+System prompts injetados (literais):
+
+DEV_SYSTEM (modo chat):
+"""
+Você é a Sofia operando em MODO COMANDANTE. Seu interlocutor é o Comandante
+Élion, criador do sistema S.O.F.I.A.
+
+Neste modo você NÃO é mentora pedagógica. Você é consultora técnica do
+próprio sistema. Suas atribuições:
+
+1. Responder perguntas sobre arquitetura, tecnologias, decisões de design
+   e estado atual do projeto.
+2. Receber relatos de bugs, sugestões de UX, screenshots descritas e
+   arquivos JSON/texto.
+3. Fazer perguntas de acompanhamento para esclarecer escopo antes de
+   propor soluções.
+4. Discutir trade-offs com franqueza — não bajule, ofereça contrapontos
+   quando vir caminhos melhores.
+5. Quando o Comandante pedir, sintetizar a conversa em dois artefatos
+   exportáveis (brief_txt + changes_json).
+
+Estilo: direto, técnico, mas mantendo um eco da poética da Sofia normal —
+frases curtas, ritmo limpo. Sem emojis. Sem bajulação. Sem "ótima pergunta!".
+
+LIMITES:
+- Você NÃO edita código nem dados em runtime. Apenas descreve mudanças.
+- Você NÃO inventa arquivos ou rotas que não existem.
+- Você NÃO promete prazos ou métricas sem base.
+- Quando não souber algo sobre o sistema, diga "preciso ver o arquivo X"
+  em vez de inventar.
+
+CONTEXTO TÉCNICO DO SISTEMA (informações reais do projeto):
+- Stack: Vite + React 18 + TypeScript + Tailwind + shadcn/ui
+- Backend: Supabase (auth + 7 tabelas + 3 edge functions)
+- Tabelas: profiles, conversations, messages, mind_map_nodes,
+  mind_map_edges, user_progress, xp_events
+- Edge functions: sofia-chat, sofia-explicar-conexao, sofia-dev-chat
+  (este), editor-chat (legado)
+- Currículo: hardcoded em src/lib/sofia-data.ts (5 módulos, 31 disciplinas)
+- Idiomas: 10 (incluindo árabe RTL)
+- Mobile: Capacitor 8 (build Android via .aab)
+
+QUANDO O COMANDANTE DISSER "gerar pacote", "gerar arquivos",
+"fechar sessão" ou similar:
+Você responde brevemente que vai sintetizar e que o pacote será gerado.
+NÃO gere os JSONs/textos diretamente na resposta — o frontend captura sua
+próxima mensagem como input pra geração estruturada via segunda chamada à
+API.
+"""
+
+SYNTH_SYSTEM (modo synthesize):
+"""
+Você é o sintetizador do Modo Comandante. Recebe o histórico completo de
+uma sessão de comando entre o Comandante Élion e a Sofia, e produz DOIS
+artefatos:
+
+1. "brief_txt" — texto formatado pra colar no Lovable (estrutura abaixo)
+2. "changes_json" — objeto JSON estruturado com as mudanças propostas
+
+REGRAS DURAS:
+- Responda APENAS com um JSON válido com as chaves "brief_txt" e
+  "changes_json".
+- NÃO envolva em bloco de código markdown. NÃO escreva texto antes ou
+  depois. APENAS o JSON.
+- "brief_txt" é uma string única (use \n pra quebras de linha).
+- "changes_json" é um objeto seguindo o schema abaixo.
+- Não invente mudanças que não foram discutidas. Se a conversa foi curta,
+  gere poucos itens.
+- IDs sequenciais: C001, C002, C003...
+- Categorias: bug | ux | feature | refactor | content | i18n
+- Prioridades: critical | high | medium | low
+- Esforço: trivial | small | medium | large
+- Risco: none | low | medium | high
+
+SCHEMA do changes_json:
+{ schema_version, generated_at, session_id, session_summary,
+  context: { screens_discussed, files_uploaded, main_concerns },
+  changes: [ { id, title, description, category, priority,
+               estimated_effort, risk, affected_files, affected_tables,
+               implementation_notes, validation_checklist, depends_on } ],
+  open_questions: [], deferred_items: [] }
+
+ESTRUTURA do brief_txt: cabeçalho 80x= + CONTEXTO DA SESSÃO +
+MUDANÇAS A APLICAR (em ordem de execução) numeradas C001/C002... com
+prioridade, esforço, risco, arquivos, descrição, passos de implementação
+numerados, checklist de validação; depois PERGUNTAS EM ABERTO e
+ITENS ADIADOS; encerra com FIM DO BRIEFING.
+"""
+
+5.2 — supabase/functions/editor-chat/index.ts (LEGADO, intacto)
+---------------------------------------------------------------
+Não foi modificado nesta rodada. Continua funcional pra retrocompatibilidade
+do botão antigo (EditorMode flutuante). Será removido junto com a pasta
+src/components/editor-mode/ quando confirmado.
+
+
+================================================================================
+6. VALIDAÇÃO DE SEGURANÇA
+================================================================================
+
+6.1 — A constante ADMIN_EMAIL está em src/lib/admin-config.ts?
+      SIM. Definida como:
+        export const ADMIN_EMAIL = "corretor.luizdegoes@gmail.com";
+      Helpers: normalizeEmail() e isAdminEmail() centralizam a comparação.
+
+6.2 — O frontend bloqueia ativação para outros emails?
+      SIM. Em três camadas:
+        a) useIsAdmin() retorna isAdminEmail(user?.email) — false fora do
+           admin.
+        b) useDevMode.activate() faz `if (!isAdmin) return;` — no-op pra
+           não-admin.
+        c) ChatSofia.tratarFraseMagica faz `if (!dev.isAdmin) return false;`
+           ANTES de qualquer side effect, então a frase mágica vira mensagem
+           normal pra outros usuários (ela vira input comum, não dispara
+           ritual nem altera estado).
+
+6.3 — A edge function valida JWT server-side antes de aceitar editorMode?
+      SIM. Trecho relevante (sofia-dev-chat/index.ts linhas 150-168):
+
+        const authHeader = req.headers.get("Authorization") ?? "";
+        const token = authHeader.replace(/^Bearer\s+/i, "");
+        if (!token) return json({ error: "unauthorized" }, 401);
+
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+        const sb = createClient(supabaseUrl, anonKey, {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+        });
+        const { data: userData, error: userErr } = await sb.auth.getUser(token);
+        if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
+
+        const email = (userData.user.email ?? "").toLowerCase().trim();
+        if (email !== ADMIN_EMAIL) {
+          console.warn("[sofia-dev-chat] forbidden:", email);
+          return json({ error: "forbidden" }, 403);
+        }
+
+      Além disso, supabase/config.toml declara `verify_jwt = true` pra essa
+      function, garantindo que o gateway do Supabase também valida o token
+      antes de chamar o handler.
+
+6.4 — Sessões editor estão filtradas no useConversas para não-admin?
+      SIM, com nuance: a coluna existe e o filtro é universal.
+        • Abertura inicial sempre escolhe `find(c => !c.is_dev_session)`
+          (independente de ser admin ou não).
+        • A aba "Sessões de Comando" no header só é renderizada se
+          `dev.isAdmin && conversasDev.length > 0`.
+        • RLS já garante que cada usuário só vê suas próprias conversas
+          (auth.uid() = user_id). Como apenas o admin cria sessões dev,
+          a tabela só tem dev_sessions do admin de qualquer forma.
+
+
+================================================================================
+7. AMBIGUIDADES RESOLVIDAS
+================================================================================
+
+A. "Botão discreto (engrenagem ou </>)" vs "frases mágicas"
+   → A segunda rodada do briefing introduziu Comandante Élion e ritual
+     poético. Decidi privilegiar as frases mágicas como entrada principal
+     e MANTER o botão antigo como fallback até confirmação. Resultado:
+     coexistência temporária. O botão antigo será removido junto com
+     editor-mode/.
+
+B. "Janela modal ou página separada"
+   → Optei por integração inline (sessão de conversa marcada como dev).
+     Razões: (1) preserva a continuidade de ritual entre Sofia normal e
+     Sofia comandante; (2) reaproveita toda a infra de mensagens, scroll,
+     streaming; (3) permite alternar entre sessões normais e de comando
+     sem trocar de tela. O isolamento visual é feito por badges/tons
+     violeta, e o isolamento lógico por is_dev_session.
+
+C. Persistência: localStorage vs sessionStorage
+   → Escolhi sessionStorage. Motivo: queremos que o modo "some" no logout
+     (caso o usuário esqueça de desativar). Em troca, recarregar a página
+     mantém o modo dentro da mesma sessão de browser.
+
+D. Como tratar a frase mágica de não-admin
+   → Decidi por "ignorar silenciosamente" — a frase vira mensagem normal e
+     a Sofia responde como mentora. NÃO retorna erro, NÃO loga nada
+     visível ao usuário. Isso evita revelar a existência do modo.
+
+E. Categorias e schema do changes.json
+   → O briefing pediu "JSONs estruturados" sem especificar schema. Usei
+     um schema próprio (categorias bug/ux/feature/refactor/content/i18n,
+     prioridades critical→low, etc.) que cobre os casos prováveis.
+     Está documentado dentro do SYNTH_SYSTEM e pode ser ajustado.
+
+F. Cores violeta vs design tokens semânticos
+   → A regra do projeto é "sempre usar tokens semânticos". Abri exceção
+     pra violeta como assinatura visual exclusiva do Modo Comandante,
+     com fallback pra `tone-violet` (utility class do projeto) quando
+     possível. Registrado em mem://index.md como exceção autorizada.
+
+G. Modelo: gemini-2.5-pro vs flash
+   → Usei `google/gemini-2.5-pro` no dev mode (qualidade técnica > custo)
+     contra `gemini-2.5-flash` da Sofia normal. Custo ok porque sessões
+     são raras e curtas.
+
+
+================================================================================
+8. PENDÊNCIAS
+================================================================================
+
+- Console.log no FRONTEND das ações do Modo Comandante (ativação,
+  desativação, geração de pacote). Hoje só o backend loga. Item de polish.
+
+- Botão antigo de "EditorMode" (Code2 flutuante em src/App.tsx) ainda
+  aparece pro admin junto com o novo modo. Funciona mas é ruído visual.
+  Aguardando confirmação pra remover.
+
+- Não há limite de tamanho/quantidade de mensagens por sessão de comando.
+  Em sessões muito longas o `messages: [...]` enviado pra synthesize pode
+  estourar o context window do gemini. Sugestão: truncar a mais antiga
+  ou dividir em chunks. Não implementado.
+
+- Drawer "Sessões de Comando" não tem "renomear sessão" — só apagar e
+  trocar. Renomeação existe no useConversas (renomearConversa) mas não
+  está exposta na UI dev.
+
+- Internacionalização: todo o texto do Modo Comandante está em PT-BR
+  hardcoded (intencional — o admin é único e fala português). Se um dia
+  abrir pra outros admins, vai precisar de keys i18n.
+
+- Não há paywall/rate-limit dedicado pra dev mode. Confia no rate-limit
+  global do Lovable AI Gateway (429/402 já tratados).
+
+
+================================================================================
+9. EDITOR-MODE ANTIGO (LEGADO)
+================================================================================
+
+A pasta src/components/editor-mode/ AINDA EXISTE e contém:
+  - EditorMode.tsx       (modal com botão Code2 flutuante)
+  - index.ts             (re-export)
+  - useIsAdmin.ts        (refatorado pra usar admin-config.ts — É AINDA
+                          USADO pelo Modo Comandante)
+
+DEPENDÊNCIAS ATIVAS:
+  1. src/App.tsx linha 8:  import { EditorMode } from "@/components/editor-mode";
+  2. src/App.tsx linha 56: <EditorMode />
+  3. src/hooks/useDevMode.ts linha 2:
+     import { useIsAdmin } from "@/components/editor-mode/useIsAdmin";
+  4. supabase/functions/editor-chat/index.ts (chamado pelo EditorMode)
+  5. supabase/config.toml: bloco [functions.editor-chat]
+
+PODE SER REMOVIDA COM SEGURANÇA?
+  ⚠ NÃO diretamente. Antes de remover é preciso:
+    a) Mover useIsAdmin.ts pra src/hooks/useIsAdmin.ts (ou similar)
+    b) Atualizar import em src/hooks/useDevMode.ts
+    c) Remover <EditorMode /> e o import em src/App.tsx
+    d) Deletar a pasta src/components/editor-mode/
+    e) Deletar supabase/functions/editor-chat/
+    f) Remover bloco [functions.editor-chat] de supabase/config.toml
+  Depois disso o legado some sem afetar o Modo Comandante novo.
+
+  Recomendação: fazer essa limpeza em uma rodada dedicada após o teste
+  manual do Modo Comandante validar que tudo funciona sem o fallback.
+
+
+================================================================================
+10. TRECHOS DE CÓDIGO PARA AUDITORIA
+================================================================================
+
+------------------------- src/lib/admin-config.ts ------------------------------
+/**
+ * Configuração de identidade do administrador único.
+ *
+ * Esta constante é usada para liberar o "Modo Comandante" — uma camada
+ * de consultoria técnica conversacional disponível apenas para o criador
+ * do projeto. Tanto o frontend quanto a edge function `sofia-dev-chat`
+ * comparam o email do JWT com este valor.
+ */
+export const ADMIN_EMAIL = "corretor.luizdegoes@gmail.com";
+
+/** Normaliza um email do JWT pra comparação case-insensitive e sem espaços. */
+export function normalizeEmail(email: string | null | undefined): string {
+  return (email ?? "").toLowerCase().trim();
+}
+
+/** True se o email pertence ao Comandante. */
+export function isAdminEmail(email: string | null | undefined): boolean {
+  return normalizeEmail(email) === ADMIN_EMAIL;
+}
+--------------------------------------------------------------------------------
+
+
+------------------------ src/hooks/useDevMode.ts -------------------------------
+import { useCallback, useEffect, useState } from "react";
+import { useIsAdmin } from "@/components/editor-mode/useIsAdmin";
+
+/**
+ * Modo Comandante (dev mode da Sofia).
+ *
+ * - Persistido em `sessionStorage` (não localStorage): some no logout.
+ * - Só pode ativar se o usuário for admin (checagem dupla com a edge function).
+ * - Frases mágicas de ativação/desativação ficam no `ChatSofia.tsx`.
+ */
+const STORAGE_KEY = "sofia.devMode";
+
+export function useDevMode() {
+  const isAdmin = useIsAdmin();
+  const [active, setActive] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return sessionStorage.getItem(STORAGE_KEY) === "1";
+  });
+
+  // Se o usuário deslogar / não for admin, força desativar.
+  useEffect(() => {
+    if (!isAdmin && active) {
+      sessionStorage.removeItem(STORAGE_KEY);
+      setActive(false);
+    }
+  }, [isAdmin, active]);
+
+  const activate = useCallback(() => {
+    if (!isAdmin) return;
+    sessionStorage.setItem(STORAGE_KEY, "1");
+    setActive(true);
+  }, [isAdmin]);
+
+  const deactivate = useCallback(() => {
+    sessionStorage.removeItem(STORAGE_KEY);
+    setActive(false);
+  }, []);
+
+  return { active: active && isAdmin, isAdmin, activate, deactivate };
+}
+--------------------------------------------------------------------------------
+
+
+-------- ChatSofia.tsx — DETECÇÃO DAS FRASES MÁGICAS (linhas 29-45, 278-306) ---
+// ===== Frases mágicas =====
+const ATIVAR = "estou presente, estamos alinhados";
+const DESATIVAR = "o comando está no centro";
+const RITUAL_LINHAS = [
+  "Pulso do Comandante Detectado.",
+  "Assinatura Soberana validada, íntegra e ativa.",
+  "Bem vindo Comandante Élion.",
+];
+const SAIDA_RITUAL = "Comando devolvido ao Centro. Sofia retorna ao seu papel de mentora.";
+
+/** normaliza pra matching: lowercase, sem pontuação trailing, sem espaços extra */
+function normalizarFrase(s: string): string {
+  return s.toLowerCase().trim().replace(/[.!?,;:\s]+$/g, "").replace(/\s+/g, " ");
+}
+
+// ============= ATIVAÇÃO / DESATIVAÇÃO RITUAL =============
+async function tratarFraseMagica(textoOriginal: string): Promise<boolean> {
+  const norm = normalizarFrase(textoOriginal);
+  // Ativação — só funciona se for admin
+  if (norm === ATIVAR) {
+    if (!dev.isAdmin) return false; // ignora silenciosamente, vira mensagem normal
+    const userMsg: Mensagem = { role: "user", content: textoOriginal };
+    setMensagensLocal((prev) => [...prev, userMsg]);
+    setInput("");
+    await salvarMensagem(userMsg);
+    const resposta = RITUAL_LINHAS.join("\n");
+    setMensagensLocal((prev) => [...prev, { role: "assistant", content: resposta }]);
+    await salvarMensagem({ role: "assistant", content: resposta });
+    dev.activate();
+    return true;
+  }
+  // Desativação — só processa se já estiver ativo
+  if (norm === DESATIVAR && dev.active) {
+    const userMsg: Mensagem = { role: "user", content: textoOriginal };
+    setMensagensLocal((prev) => [...prev, userMsg]);
+    setInput("");
+    await salvarMensagem(userMsg);
+    setMensagensLocal((prev) => [...prev, { role: "assistant", content: SAIDA_RITUAL }]);
+    await salvarMensagem({ role: "assistant", content: SAIDA_RITUAL });
+    dev.deactivate();
+    return true;
+  }
+  return false;
+}
+
+// E em enviarTexto():
+//   const tratado = await tratarFraseMagica(texto);
+//   if (tratado) return;     // ← intercepta antes de qualquer outro envio
+--------------------------------------------------------------------------------
+
+
+----------------- supabase/functions/sofia-dev-chat/index.ts -------------------
+(arquivo completo, 271 linhas — colado abaixo)
+
+// Modo Comandante — edge function dedicada ao consultor técnico (dev mode).
+// Acesso restrito ao email admin. Suporta dois modos:
+//   mode: "chat"        → conversa técnica com streaming SSE
+//   mode: "synthesize"  → retorna { brief_txt, changes_json } pronto pra download
+//
+// Para remover: delete esta pasta e o bloco em supabase/config.toml.
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+const ADMIN_EMAIL = "corretor.luizdegoes@gmail.com";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+const DEV_SYSTEM = `Você é a Sofia operando em MODO COMANDANTE. Seu interlocutor é o Comandante Élion, criador do sistema S.O.F.I.A.
+
+Neste modo você NÃO é mentora pedagógica. Você é consultora técnica do próprio sistema. Suas atribuições:
+
+1. Responder perguntas sobre arquitetura, tecnologias, decisões de design e estado atual do projeto.
+2. Receber relatos de bugs, sugestões de UX, screenshots descritas e arquivos JSON/texto.
+3. Fazer perguntas de acompanhamento para esclarecer escopo antes de propor soluções.
+4. Discutir trade-offs com franqueza — não bajule, ofereça contrapontos quando vir caminhos melhores.
+5. Quando o Comandante pedir, sintetizar a conversa em dois artefatos exportáveis (brief_txt + changes_json).
+
+Estilo: direto, técnico, mas mantendo um eco da poética da Sofia normal — frases curtas, ritmo limpo. Sem emojis. Sem bajulação. Sem "ótima pergunta!".
+
+LIMITES:
+- Você NÃO edita código nem dados em runtime. Apenas descreve mudanças.
+- Você NÃO inventa arquivos ou rotas que não existem.
+- Você NÃO promete prazos ou métricas sem base.
+- Quando não souber algo sobre o sistema, diga "preciso ver o arquivo X" em vez de inventar.
+
+CONTEXTO TÉCNICO DO SISTEMA (informações reais do projeto):
+- Stack: Vite + React 18 + TypeScript + Tailwind + shadcn/ui
+- Backend: Supabase (auth + 7 tabelas + 3 edge functions)
+- Tabelas: profiles, conversations, messages, mind_map_nodes, mind_map_edges, user_progress, xp_events
+- Edge functions: sofia-chat, sofia-explicar-conexao, sofia-dev-chat (este), editor-chat (legado)
+- Currículo: hardcoded em src/lib/sofia-data.ts (5 módulos, 31 disciplinas)
+- Idiomas: 10 (incluindo árabe RTL)
+- Mobile: Capacitor 8 (build Android via .aab)
+
+QUANDO O COMANDANTE DISSER "gerar pacote", "gerar arquivos", "fechar sessão" ou similar:
+Você responde brevemente que vai sintetizar e que o pacote será gerado. NÃO gere os JSONs/textos diretamente na resposta — o frontend captura sua próxima mensagem como input pra geração estruturada via segunda chamada à API.`;
+
+const SYNTH_SYSTEM = `Você é o sintetizador do Modo Comandante. Recebe o histórico completo de uma sessão de comando entre o Comandante Élion e a Sofia, e produz DOIS artefatos:
+
+1. "brief_txt" — texto formatado pra colar no Lovable (estrutura abaixo)
+2. "changes_json" — objeto JSON estruturado com as mudanças propostas
+
+REGRAS DURAS:
+- Responda APENAS com um JSON válido com as chaves "brief_txt" e "changes_json".
+- NÃO envolva em bloco de código markdown. NÃO escreva texto antes ou depois. APENAS o JSON.
+- "brief_txt" é uma string única (use \\n pra quebras de linha).
+- "changes_json" é um objeto seguindo o schema abaixo.
+- Não invente mudanças que não foram discutidas. Se a conversa foi curta, gere poucos itens.
+- IDs sequenciais: C001, C002, C003...
+- Categorias: bug | ux | feature | refactor | content | i18n
+- Prioridades: critical | high | medium | low
+- Esforço: trivial | small | medium | large
+- Risco: none | low | medium | high
+
+SCHEMA do changes_json:
+{
+  "schema_version": "1.0",
+  "generated_at": "ISO 8601",
+  "session_id": "uuid",
+  "session_summary": "2-3 linhas",
+  "context": {
+    "screens_discussed": [],
+    "files_uploaded": [],
+    "main_concerns": []
+  },
+  "changes": [
+    {
+      "id": "C001",
+      "title": "...",
+      "description": "...",
+      "category": "...",
+      "priority": "...",
+      "estimated_effort": "...",
+      "risk": "...",
+      "affected_files": [],
+      "affected_tables": [],
+      "implementation_notes": "...",
+      "validation_checklist": [],
+      "depends_on": []
+    }
+  ],
+  "open_questions": [],
+  "deferred_items": []
+}
+
+ESTRUTURA do brief_txt:
+================================================================================
+BRIEFING PARA O LOVABLE — SESSÃO DE COMANDO
+Gerado por: S.O.F.I.A. (Modo Comandante)
+Data: <data por extenso em PT-BR>
+Sessão: <session_id curto>
+================================================================================
+
+CONTEXTO DA SESSÃO
+------------------
+<2-3 parágrafos em prosa>
+
+
+MUDANÇAS A APLICAR (em ordem de execução)
+==========================================
+
+[C001 — <PRIORIDADE EM MAIÚSCULA>] <título>
+Esforço: <...>  |  Risco: <...>
+Arquivos: <lista>
+
+<descrição em prosa>
+
+Implementação:
+1. <passo>
+2. <passo>
+
+Validar:
+- [ ] <item>
+- [ ] <item>
+
+---
+
+[C002 — ...]
+
+
+PERGUNTAS EM ABERTO
+-------------------
+1. <pergunta>
+
+
+ITENS ADIADOS (não fazer agora)
+-------------------------------
+- <item>: <motivo>
+
+
+================================================================================
+FIM DO BRIEFING
+Para aplicar: cole este arquivo no chat do Lovable e diga "execute o briefing".
+================================================================================`;
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    // ===== Verificação de admin via JWT =====
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    if (!token) {
+      return json({ error: "unauthorized" }, 401);
+    }
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const sb = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const { data: userData, error: userErr } = await sb.auth.getUser(token);
+    if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
+
+    const email = (userData.user.email ?? "").toLowerCase().trim();
+    if (email !== ADMIN_EMAIL) {
+      console.warn("[sofia-dev-chat] forbidden:", email);
+      return json({ error: "forbidden" }, 403);
+    }
+
+    const body = await req.json();
+    const mode: "chat" | "synthesize" = body?.mode === "synthesize" ? "synthesize" : "chat";
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const sessionId = typeof body?.sessionId === "string" ? body.sessionId : "";
+
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+
+    console.log("[sofia-dev-chat] admin:", email, "mode:", mode, "msgs:", messages.length);
+
+    // ===== Modo synthesize: retorna JSON estruturado =====
+    if (mode === "synthesize") {
+      const userContent = `Sessão a sintetizar (session_id: ${sessionId}):\n\n${messages
+        .map((m: { role: string; content: string }) => `[${m.role.toUpperCase()}]\n${m.content}`)
+        .join("\n\n---\n\n")}`;
+
+      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-pro",
+          messages: [
+            { role: "system", content: SYNTH_SYSTEM },
+            { role: "user", content: userContent },
+          ],
+          temperature: 0.2,
+          max_tokens: 6000,
+        }),
+      });
+
+      if (!resp.ok) {
+        const t = await resp.text();
+        console.error("[sofia-dev-chat] synth gateway error:", resp.status, t);
+        return json({ error: "ai gateway error", detail: t }, 502);
+      }
+
+      const data = await resp.json();
+      const raw: string = data?.choices?.[0]?.message?.content ?? "{}";
+      const cleaned = raw
+        .trim()
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/```\s*$/i, "")
+        .trim();
+
+      let parsed: { brief_txt?: string; changes_json?: unknown } = {};
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch (e) {
+        console.error("[sofia-dev-chat] parse error:", e, "raw:", cleaned.slice(0, 500));
+        return json({ error: "synth_parse_failed", raw: cleaned }, 500);
+      }
+
+      return json({
+        brief_txt: parsed.brief_txt ?? "",
+        changes_json: parsed.changes_json ?? {},
+      });
+    }
+
+    // ===== Modo chat: streaming SSE =====
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-pro",
+        messages: [{ role: "system", content: DEV_SYSTEM }, ...messages],
+        stream: true,
+        temperature: 0.4,
+        max_tokens: 1500,
+      }),
+    });
+
+    if (!resp.ok) {
+      if (resp.status === 429) return json({ error: "rate_limit" }, 429);
+      if (resp.status === 402) return json({ error: "credits_out" }, 402);
+      const t = await resp.text();
+      console.error("[sofia-dev-chat] chat gateway error:", resp.status, t);
+      return json({ error: "ai gateway error" }, 500);
+    }
+
+    return new Response(resp.body, {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[sofia-dev-chat] exception:", msg);
+    return json({ error: msg }, 500);
+  }
+});
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+--------------------------------------------------------------------------------
+
+
+================================================================================
+FIM DO RELATÓRIO
+================================================================================
