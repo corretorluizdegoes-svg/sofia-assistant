@@ -347,7 +347,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
       return true;
     }
     // Desativação — só processa se já estiver ativo
-    if (norm === DESATIVAR && dev.active) {
+    if (norm === DESATIVAR && dev.comandanteAtivo) {
       const userMsg: Mensagem = { role: "user", content: textoOriginal };
       setMensagensLocal((prev) => [...prev, userMsg]);
       setInput("");
