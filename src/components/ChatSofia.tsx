@@ -691,7 +691,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           <div className="text-center text-sm text-muted-foreground">{t("chat.loading")}</div>
         ) : mensagensExibidas.length === 0 && !isSending ? (
           ehSessaoDev
-            ? <DevWelcome />
+            ? <DevWelcome tier={dev.tier} />
             : <WelcomeCards onPick={(msg) => enviarTexto(msg)} />
         ) : (
           mensagensExibidas.map((m, i) => <MessageBubble key={m.id ?? i} msg={m} />)
@@ -793,19 +793,34 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   );
 }
 
-function DevWelcome() {
+function DevWelcome({ tier }: { tier: "editor" | "comandante" }) {
+  const ehComandante = tier === "comandante";
   return (
     <div className="flex flex-col items-center justify-center min-h-full py-6 animate-fade-in text-center">
-      <div className="w-14 h-14 rounded-3xl tone-violet mx-auto mb-4 flex items-center justify-center">
+      <div
+        className={`w-14 h-14 rounded-3xl mx-auto mb-4 flex items-center justify-center ${
+          ehComandante ? "tone-violet" : "bg-violet-50 text-violet-700 border border-violet-200"
+        }`}
+      >
         <Terminal className="w-6 h-6" strokeWidth={2} />
       </div>
       <h2 className="font-display font-bold text-2xl text-foreground tracking-tight mb-2">
-        Modo Comandante
+        {ehComandante ? "Modo Comandante" : "Modo Editor"}
       </h2>
       <p className="text-sm text-muted-foreground max-w-md">
-        Sofia agora é consultora técnica do próprio sistema. Descreva o que precisa
-        revisar — bugs, UX, estrutura. Quando estiver pronto, peça <em>"gerar pacote"</em>
-        {" "}ou clique no botão <strong>Gerar Pacote</strong> no topo.
+        {ehComandante ? (
+          <>
+            Sofia te trata por <strong>Comandante Élion</strong>. Análise estratégica
+            ativa — convoque um Núcleo (Matemático, Computacional, IA, Simbólico, Quântico)
+            quando precisar de suporte tático.
+          </>
+        ) : (
+          <>
+            Sofia em modo editora técnica. Pode inspecionar e editar nodes/conexões
+            do mapa mental — sempre pede <em>"sim, confirmo"</em> antes de aplicar.
+            Diga <em>"O Comando está no Centro."</em> para elevar ao Modo Comandante.
+          </>
+        )}
       </p>
     </div>
   );
