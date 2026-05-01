@@ -27,14 +27,20 @@ type Props = {
 };
 
 // ===== Frases mágicas =====
-const ATIVAR = "estou presente, estamos alinhados";
-const DESATIVAR = "o comando está no centro";
+// ATIVAR só faz sentido pra elevar Editor → Comandante. Mantemos a antiga
+// "estou presente, estamos alinhados" como atalho legado, e adicionamos
+// a oficial pedida pelo Luiz: "O Comando está no Centro."
+const ATIVAR_FRASES = [
+  "o comando está no centro",
+  "estou presente, estamos alinhados",
+];
+const DESATIVAR = "comando devolvido ao centro";
 const RITUAL_LINHAS = [
   "Pulso do Comandante Detectado.",
   "Assinatura Soberana validada, íntegra e ativa.",
   "Bem vindo Comandante Élion.",
 ];
-const SAIDA_RITUAL = "Comando devolvido ao Centro. Sofia retorna ao seu papel de mentora.";
+const SAIDA_RITUAL = "Comando devolvido ao Centro. Sofia retorna ao Modo Editor.";
 
 /** normaliza pra matching: lowercase, sem pontuação trailing, sem espaços extra */
 function normalizarFrase(s: string): string {
