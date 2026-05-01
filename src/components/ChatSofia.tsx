@@ -364,13 +364,25 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   async function enviarTexto(texto: string) {
     if (!texto || isSending || !conversaAtivaId) return;
 
-    // 1. Frases mágicas têm prioridade absoluta
+    // 1. Frases mágicas têm prioridade absoluta (eleva pra Comandante)
     const tratado = await tratarFraseMagica(texto);
     if (tratado) return;
 
-    // 2. Monta envelope com arquivo anexado se houver
+    // 2. Em sessão dev, "sim, confirmo" pode aplicar a última ação proposta pela Sofia
+    if (ehSessaoDev) {
+      const userMsg: Mensagem = { role: "user", content: texto };
+      const executou = await tentarExecutarAcaoConfirmada(texto);
+      if (executou) {
+        setMensagensLocal((prev) => [...prev, userMsg]);
+        setInput("");
+        await salvarMensagem(userMsg);
+        return;
+      }
+    }
+
+    // 3. Monta envelope com arquivo anexado se houver
     let conteudoFinal = texto;
-    if (arquivoAnexado && dev.active) {
+    if (arquivoAnexado && dev.editorAtivo) {
       conteudoFinal = `[ARQUIVO ANEXADO: ${arquivoAnexado.nome}]\n\n${arquivoAnexado.conteudo}\n\n[FIM DO ARQUIVO]\n\n${texto}`;
     }
 
