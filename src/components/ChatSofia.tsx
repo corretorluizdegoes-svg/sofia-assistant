@@ -333,8 +333,8 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   // ============= ATIVAÇÃO / DESATIVAÇÃO RITUAL =============
   async function tratarFraseMagica(textoOriginal: string): Promise<boolean> {
     const norm = normalizarFrase(textoOriginal);
-    // Ativação — só funciona se for admin
-    if (norm === ATIVAR) {
+    // Ativação — eleva Editor → Comandante. Só funciona se for admin.
+    if (ATIVAR_FRASES.includes(norm) && !dev.comandanteAtivo) {
       if (!dev.isAdmin) return false; // ignora silenciosamente, vira mensagem normal
       const userMsg: Mensagem = { role: "user", content: textoOriginal };
       setMensagensLocal((prev) => [...prev, userMsg]);
