@@ -27,14 +27,20 @@ type Props = {
 };
 
 // ===== Frases mágicas =====
-const ATIVAR = "estou presente, estamos alinhados";
-const DESATIVAR = "o comando está no centro";
+// ATIVAR só faz sentido pra elevar Editor → Comandante. Mantemos a antiga
+// "estou presente, estamos alinhados" como atalho legado, e adicionamos
+// a oficial pedida pelo Luiz: "O Comando está no Centro."
+const ATIVAR_FRASES = [
+  "o comando está no centro",
+  "estou presente, estamos alinhados",
+];
+const DESATIVAR = "comando devolvido ao centro";
 const RITUAL_LINHAS = [
   "Pulso do Comandante Detectado.",
   "Assinatura Soberana validada, íntegra e ativa.",
   "Bem vindo Comandante Élion.",
 ];
-const SAIDA_RITUAL = "Comando devolvido ao Centro. Sofia retorna ao seu papel de mentora.";
+const SAIDA_RITUAL = "Comando devolvido ao Centro. Sofia retorna ao Modo Editor.";
 
 /** normaliza pra matching: lowercase, sem pontuação trailing, sem espaços extra */
 function normalizarFrase(s: string): string {
@@ -146,7 +152,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     return await consumirSSE(resp);
   }
 
-  // ============= STREAM SOFIA DEV =============
+  // ============= STREAM SOFIA DEV (Editor / Comandante) =============
   async function streamRespostaDev(historico: Mensagem[]): Promise<string> {
     const sessionToken = (await supabase.auth.getSession()).data.session?.access_token;
     const resp = await fetch(DEV_CHAT_URL, {
@@ -157,11 +163,60 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
       },
       body: JSON.stringify({
         mode: "chat",
+        tier: dev.tier, // "editor" | "comandante"
         sessionId: conversaAtivaId,
         messages: historico.map(({ role, content }) => ({ role, content })),
       }),
     });
     return await consumirSSE(resp);
+  }
+
+  // ============= EXECUTOR DE AÇÕES CONFIRMADAS =============
+  // Quando a Sofia emite ```action {...}``` E o usuário responde "sim, confirmo",
+  // chamamos a edge com mode=execute pra aplicar a mudança no banco.
+  async function tentarExecutarAcaoConfirmada(textoUsuario: string): Promise<boolean> {
+    if (!dev.editorAtivo) return false;
+    const confirma = /^\s*(sim,?\s*confirmo|confirmo|sim|pode aplicar)\s*\.?\s*$/i.test(textoUsuario.trim());
+    if (!confirma) return false;
+
+    // procura a ÚLTIMA mensagem assistant com bloco ```action ... ```
+    const ultimaAssistente = [...mensagens].reverse().find((m) => m.role === "assistant");
+    if (!ultimaAssistente) return false;
+    const match = ultimaAssistente.content.match(/```action\s*([\s\S]*?)```/i);
+    if (!match) return false;
+
+    let action: { op: string; payload: Record<string, unknown> };
+    try {
+      action = JSON.parse(match[1].trim());
+    } catch (e) {
+      console.warn("[exec] JSON inválido no bloco action:", e);
+      return false;
+    }
+
+    const sessionToken = (await supabase.auth.getSession()).data.session?.access_token;
+    try {
+      const resp = await fetch(DEV_CHAT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken ?? ""}` },
+        body: JSON.stringify({ mode: "execute", tier: dev.tier, action, sessionId: conversaAtivaId }),
+      });
+      const data = await resp.json();
+      const ok = resp.ok && data?.ok;
+      const aviso = ok
+        ? `// Ação executada: ${data.message}`
+        : `// FALHA na execução: ${data?.message ?? `HTTP ${resp.status}`}`;
+      const msg: Mensagem = { role: "assistant", content: aviso };
+      setMensagensLocal((prev) => [...prev, msg]);
+      await salvarMensagem(msg);
+      toast({
+        title: ok ? "Mudança aplicada" : "Falha na execução",
+        description: data?.message ?? "",
+      });
+      return true;
+    } catch (e) {
+      console.error("[exec] erro:", e);
+      return false;
+    }
   }
 
   async function consumirSSE(resp: Response): Promise<string> {
@@ -278,8 +333,8 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   // ============= ATIVAÇÃO / DESATIVAÇÃO RITUAL =============
   async function tratarFraseMagica(textoOriginal: string): Promise<boolean> {
     const norm = normalizarFrase(textoOriginal);
-    // Ativação — só funciona se for admin
-    if (norm === ATIVAR) {
+    // Ativação — eleva Editor → Comandante. Só funciona se for admin.
+    if (ATIVAR_FRASES.includes(norm) && !dev.comandanteAtivo) {
       if (!dev.isAdmin) return false; // ignora silenciosamente, vira mensagem normal
       const userMsg: Mensagem = { role: "user", content: textoOriginal };
       setMensagensLocal((prev) => [...prev, userMsg]);
@@ -292,7 +347,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
       return true;
     }
     // Desativação — só processa se já estiver ativo
-    if (norm === DESATIVAR && dev.active) {
+    if (norm === DESATIVAR && dev.comandanteAtivo) {
       const userMsg: Mensagem = { role: "user", content: textoOriginal };
       setMensagensLocal((prev) => [...prev, userMsg]);
       setInput("");
@@ -309,13 +364,25 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   async function enviarTexto(texto: string) {
     if (!texto || isSending || !conversaAtivaId) return;
 
-    // 1. Frases mágicas têm prioridade absoluta
+    // 1. Frases mágicas têm prioridade absoluta (eleva pra Comandante)
     const tratado = await tratarFraseMagica(texto);
     if (tratado) return;
 
-    // 2. Monta envelope com arquivo anexado se houver
+    // 2. Em sessão dev, "sim, confirmo" pode aplicar a última ação proposta pela Sofia
+    if (ehSessaoDev) {
+      const userMsg: Mensagem = { role: "user", content: texto };
+      const executou = await tentarExecutarAcaoConfirmada(texto);
+      if (executou) {
+        setMensagensLocal((prev) => [...prev, userMsg]);
+        setInput("");
+        await salvarMensagem(userMsg);
+        return;
+      }
+    }
+
+    // 3. Monta envelope com arquivo anexado se houver
     let conteudoFinal = texto;
-    if (arquivoAnexado && dev.active) {
+    if (arquivoAnexado && dev.editorAtivo) {
       conteudoFinal = `[ARQUIVO ANEXADO: ${arquivoAnexado.nome}]\n\n${arquivoAnexado.conteudo}\n\n[FIM DO ARQUIVO]\n\n${texto}`;
     }
 
@@ -375,10 +442,11 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     await enviarTexto(input.trim());
   }
 
-  // ============= NOVA CONVERSA — abre dev se modo ativo =============
+  // ============= NOVA CONVERSA — admin sempre cria dev session =============
   async function novaConversa() {
-    if (dev.active) {
-      await criarConversa({ title: "Sessão de Comando", is_dev_session: true });
+    if (dev.editorAtivo) {
+      const titulo = dev.comandanteAtivo ? "Sessão de Comando" : "Sessão Editor";
+      await criarConversa({ title: titulo, is_dev_session: true });
     } else {
       await criarConversa();
     }
@@ -487,10 +555,14 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           >
             <h1 className="font-display font-bold text-lg leading-tight text-foreground tracking-tight hover:text-primary transition-colors cursor-pointer inline-flex items-center gap-2">
               S.O.F.I.A.
-              {dev.active && (
-                <span className="inline-flex items-center gap-1 tone-violet rounded-full px-2 py-0.5 text-[10px] font-bold tracking-widest animate-pulse-soft">
+              {dev.editorAtivo && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-widest animate-pulse-soft ${
+                    dev.comandanteAtivo ? "tone-violet" : "bg-violet-50 text-violet-700 border border-violet-200"
+                  }`}
+                >
                   <Terminal className="w-2.5 h-2.5" strokeWidth={2.5} />
-                  MODO COMANDANTE
+                  {dev.comandanteAtivo ? "MODO COMANDANTE" : "MODO EDITOR"}
                 </span>
               )}
             </h1>
@@ -503,7 +575,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           <NivelIcon className="w-3.5 h-3.5" strokeWidth={1.75} />
           {nivelAtual.nome}
         </div>
-        {dev.active && (
+        {dev.editorAtivo && (
           <Button
             variant="ghost"
             size="sm"
@@ -521,7 +593,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           size="sm"
           onClick={novaConversa}
           className="rounded-full text-slate-500 hover:text-primary hover:bg-primary/5"
-          title={dev.active ? "Nova Sessão de Comando" : t("chat.new")}
+          title={dev.editorAtivo ? (dev.comandanteAtivo ? "Nova Sessão de Comando" : "Nova Sessão Editor") : t("chat.new")}
         >
           <Plus className="w-4 h-4" strokeWidth={1.75} />
           <span className="hidden sm:inline text-xs">{t("chat.new")}</span>
@@ -619,7 +691,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           <div className="text-center text-sm text-muted-foreground">{t("chat.loading")}</div>
         ) : mensagensExibidas.length === 0 && !isSending ? (
           ehSessaoDev
-            ? <DevWelcome />
+            ? <DevWelcome tier={dev.tier} />
             : <WelcomeCards onPick={(msg) => enviarTexto(msg)} />
         ) : (
           mensagensExibidas.map((m, i) => <MessageBubble key={m.id ?? i} msg={m} />)
@@ -642,7 +714,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
       </div>
 
       {/* Anexo preview */}
-      {arquivoAnexado && dev.active && (
+      {arquivoAnexado && dev.editorAtivo && (
         <div className="mx-4 mb-2 rounded-xl bg-violet-50 border border-violet-200 px-3 py-2 flex items-center gap-2 text-xs text-violet-800">
           <Paperclip className="w-3.5 h-3.5" />
           <span className="flex-1 truncate font-mono">{arquivoAnexado.nome}</span>
@@ -660,12 +732,12 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
       <form onSubmit={enviar} className="px-3 sm:px-4 pb-4 pt-2">
         <div
           className={`flex items-end gap-2 bg-white rounded-full border focus-within:shadow-glow shadow-soft transition-all pl-5 pr-2 py-2 ${
-            dev.active
+            dev.editorAtivo
               ? "border-violet-300 ring-1 ring-[hsl(var(--primary-glow))]/40 focus-within:border-violet-400"
               : "border-border/70 focus-within:border-primary/50"
           }`}
         >
-          {dev.active && (
+          {dev.editorAtivo && (
             <>
               <input
                 ref={fileInputRef}
@@ -695,14 +767,14 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
             }}
             rows={1}
             disabled={isSending || loadingConv}
-            placeholder={dev.active ? "modo comandante — fale técnico" : t("chat.placeholder")}
+            placeholder={dev.comandanteAtivo ? "modo comandante — fale técnico" : t("chat.placeholder")}
             className="flex-1 resize-none bg-transparent outline-none text-sm sm:text-base text-foreground placeholder:text-muted-foreground/70 max-h-40 py-2"
           />
           <button
             type="submit"
             disabled={!input.trim() || isSending}
             className={`shrink-0 w-10 h-10 rounded-full text-white flex items-center justify-center shadow-soft hover:shadow-glow disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:scale-105 ${
-              dev.active ? "bg-violet-600 hover:bg-violet-700" : "bg-gradient-primary"
+              dev.editorAtivo ? "bg-violet-600 hover:bg-violet-700" : "bg-gradient-primary"
             }`}
             aria-label={t("common.send")}
           >
@@ -710,28 +782,45 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           </button>
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground/80 text-center">
-          {dev.active
-            ? "Modo Comandante ativo — sessões não contam XP, não aparecem no histórico normal."
-            : t("chat.footer")}
+          {dev.comandanteAtivo
+            ? "Modo Comandante ativo — Sofia te chama de Comandante Élion. Sessões não contam XP."
+            : dev.editorAtivo
+              ? 'Modo Editor ativo — Sofia pode editar nodes/conexões após "sim, confirmo". Diga "O Comando está no Centro." para ativar o Comandante.'
+              : t("chat.footer")}
         </p>
       </form>
     </section>
   );
 }
 
-function DevWelcome() {
+function DevWelcome({ tier }: { tier: "editor" | "comandante" }) {
+  const ehComandante = tier === "comandante";
   return (
     <div className="flex flex-col items-center justify-center min-h-full py-6 animate-fade-in text-center">
-      <div className="w-14 h-14 rounded-3xl tone-violet mx-auto mb-4 flex items-center justify-center">
+      <div
+        className={`w-14 h-14 rounded-3xl mx-auto mb-4 flex items-center justify-center ${
+          ehComandante ? "tone-violet" : "bg-violet-50 text-violet-700 border border-violet-200"
+        }`}
+      >
         <Terminal className="w-6 h-6" strokeWidth={2} />
       </div>
       <h2 className="font-display font-bold text-2xl text-foreground tracking-tight mb-2">
-        Modo Comandante
+        {ehComandante ? "Modo Comandante" : "Modo Editor"}
       </h2>
       <p className="text-sm text-muted-foreground max-w-md">
-        Sofia agora é consultora técnica do próprio sistema. Descreva o que precisa
-        revisar — bugs, UX, estrutura. Quando estiver pronto, peça <em>"gerar pacote"</em>
-        {" "}ou clique no botão <strong>Gerar Pacote</strong> no topo.
+        {ehComandante ? (
+          <>
+            Sofia te trata por <strong>Comandante Élion</strong>. Análise estratégica
+            ativa — convoque um Núcleo (Matemático, Computacional, IA, Simbólico, Quântico)
+            quando precisar de suporte tático.
+          </>
+        ) : (
+          <>
+            Sofia em modo editora técnica. Pode inspecionar e editar nodes/conexões
+            do mapa mental — sempre pede <em>"sim, confirmo"</em> antes de aplicar.
+            Diga <em>"O Comando está no Centro."</em> para elevar ao Modo Comandante.
+          </>
+        )}
       </p>
     </div>
   );
