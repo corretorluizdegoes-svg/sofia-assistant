@@ -555,10 +555,14 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           >
             <h1 className="font-display font-bold text-lg leading-tight text-foreground tracking-tight hover:text-primary transition-colors cursor-pointer inline-flex items-center gap-2">
               S.O.F.I.A.
-              {dev.active && (
-                <span className="inline-flex items-center gap-1 tone-violet rounded-full px-2 py-0.5 text-[10px] font-bold tracking-widest animate-pulse-soft">
+              {dev.editorAtivo && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-widest animate-pulse-soft ${
+                    dev.comandanteAtivo ? "tone-violet" : "bg-violet-50 text-violet-700 border border-violet-200"
+                  }`}
+                >
                   <Terminal className="w-2.5 h-2.5" strokeWidth={2.5} />
-                  MODO COMANDANTE
+                  {dev.comandanteAtivo ? "MODO COMANDANTE" : "MODO EDITOR"}
                 </span>
               )}
             </h1>
