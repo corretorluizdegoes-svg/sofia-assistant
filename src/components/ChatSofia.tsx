@@ -782,9 +782,11 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           </button>
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground/80 text-center">
-          {dev.editorAtivo
-            ? "Modo Comandante ativo — sessões não contam XP, não aparecem no histórico normal."
-            : t("chat.footer")}
+          {dev.comandanteAtivo
+            ? "Modo Comandante ativo — Sofia te chama de Comandante Élion. Sessões não contam XP."
+            : dev.editorAtivo
+              ? 'Modo Editor ativo — Sofia pode editar nodes/conexões após "sim, confirmo". Diga "O Comando está no Centro." para ativar o Comandante.'
+              : t("chat.footer")}
         </p>
       </form>
     </section>
