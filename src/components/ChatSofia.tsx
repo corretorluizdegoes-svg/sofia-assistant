@@ -146,7 +146,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     return await consumirSSE(resp);
   }
 
-  // ============= STREAM SOFIA DEV =============
+  // ============= STREAM SOFIA DEV (Editor / Comandante) =============
   async function streamRespostaDev(historico: Mensagem[]): Promise<string> {
     const sessionToken = (await supabase.auth.getSession()).data.session?.access_token;
     const resp = await fetch(DEV_CHAT_URL, {
@@ -157,11 +157,60 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
       },
       body: JSON.stringify({
         mode: "chat",
+        tier: dev.tier, // "editor" | "comandante"
         sessionId: conversaAtivaId,
         messages: historico.map(({ role, content }) => ({ role, content })),
       }),
     });
     return await consumirSSE(resp);
+  }
+
+  // ============= EXECUTOR DE AÇÕES CONFIRMADAS =============
+  // Quando a Sofia emite ```action {...}``` E o usuário responde "sim, confirmo",
+  // chamamos a edge com mode=execute pra aplicar a mudança no banco.
+  async function tentarExecutarAcaoConfirmada(textoUsuario: string): Promise<boolean> {
+    if (!dev.editorAtivo) return false;
+    const confirma = /^\s*(sim,?\s*confirmo|confirmo|sim|pode aplicar)\s*\.?\s*$/i.test(textoUsuario.trim());
+    if (!confirma) return false;
+
+    // procura a ÚLTIMA mensagem assistant com bloco ```action ... ```
+    const ultimaAssistente = [...mensagens].reverse().find((m) => m.role === "assistant");
+    if (!ultimaAssistente) return false;
+    const match = ultimaAssistente.content.match(/```action\s*([\s\S]*?)```/i);
+    if (!match) return false;
+
+    let action: { op: string; payload: Record<string, unknown> };
+    try {
+      action = JSON.parse(match[1].trim());
+    } catch (e) {
+      console.warn("[exec] JSON inválido no bloco action:", e);
+      return false;
+    }
+
+    const sessionToken = (await supabase.auth.getSession()).data.session?.access_token;
+    try {
+      const resp = await fetch(DEV_CHAT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken ?? ""}` },
+        body: JSON.stringify({ mode: "execute", tier: dev.tier, action, sessionId: conversaAtivaId }),
+      });
+      const data = await resp.json();
+      const ok = resp.ok && data?.ok;
+      const aviso = ok
+        ? `// Ação executada: ${data.message}`
+        : `// FALHA na execução: ${data?.message ?? `HTTP ${resp.status}`}`;
+      const msg: Mensagem = { role: "assistant", content: aviso };
+      setMensagensLocal((prev) => [...prev, msg]);
+      await salvarMensagem(msg);
+      toast({
+        title: ok ? "Mudança aplicada" : "Falha na execução",
+        description: data?.message ?? "",
+      });
+      return true;
+    } catch (e) {
+      console.error("[exec] erro:", e);
+      return false;
+    }
   }
 
   async function consumirSSE(resp: Response): Promise<string> {
