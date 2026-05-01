@@ -442,10 +442,11 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     await enviarTexto(input.trim());
   }
 
-  // ============= NOVA CONVERSA — abre dev se modo ativo =============
+  // ============= NOVA CONVERSA — admin sempre cria dev session =============
   async function novaConversa() {
-    if (dev.active) {
-      await criarConversa({ title: "Sessão de Comando", is_dev_session: true });
+    if (dev.editorAtivo) {
+      const titulo = dev.comandanteAtivo ? "Sessão de Comando" : "Sessão Editor";
+      await criarConversa({ title: titulo, is_dev_session: true });
     } else {
       await criarConversa();
     }
