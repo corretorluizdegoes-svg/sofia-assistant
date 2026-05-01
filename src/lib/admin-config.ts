@@ -6,7 +6,7 @@
  * do projeto. Tanto o frontend quanto a edge function `sofia-dev-chat`
  * comparam o email do JWT com este valor.
  */
-export const ADMIN_EMAIL = "corretor.luizdegoes@gmail.com";
+export const ADMIN_EMAIL = "sustainingpulse@gmail.com";
 
 /** Normaliza um email do JWT pra comparação case-insensitive e sem espaços. */
 export function normalizeEmail(email: string | null | undefined): string {
