@@ -575,7 +575,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           <NivelIcon className="w-3.5 h-3.5" strokeWidth={1.75} />
           {nivelAtual.nome}
         </div>
-        {dev.active && (
+        {dev.editorAtivo && (
           <Button
             variant="ghost"
             size="sm"
@@ -593,7 +593,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           size="sm"
           onClick={novaConversa}
           className="rounded-full text-slate-500 hover:text-primary hover:bg-primary/5"
-          title={dev.active ? "Nova Sessão de Comando" : t("chat.new")}
+          title={dev.editorAtivo ? (dev.comandanteAtivo ? "Nova Sessão de Comando" : "Nova Sessão Editor") : t("chat.new")}
         >
           <Plus className="w-4 h-4" strokeWidth={1.75} />
           <span className="hidden sm:inline text-xs">{t("chat.new")}</span>
@@ -714,7 +714,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
       </div>
 
       {/* Anexo preview */}
-      {arquivoAnexado && dev.active && (
+      {arquivoAnexado && dev.editorAtivo && (
         <div className="mx-4 mb-2 rounded-xl bg-violet-50 border border-violet-200 px-3 py-2 flex items-center gap-2 text-xs text-violet-800">
           <Paperclip className="w-3.5 h-3.5" />
           <span className="flex-1 truncate font-mono">{arquivoAnexado.nome}</span>
@@ -732,12 +732,12 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
       <form onSubmit={enviar} className="px-3 sm:px-4 pb-4 pt-2">
         <div
           className={`flex items-end gap-2 bg-white rounded-full border focus-within:shadow-glow shadow-soft transition-all pl-5 pr-2 py-2 ${
-            dev.active
+            dev.editorAtivo
               ? "border-violet-300 ring-1 ring-[hsl(var(--primary-glow))]/40 focus-within:border-violet-400"
               : "border-border/70 focus-within:border-primary/50"
           }`}
         >
-          {dev.active && (
+          {dev.editorAtivo && (
             <>
               <input
                 ref={fileInputRef}
@@ -767,14 +767,14 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
             }}
             rows={1}
             disabled={isSending || loadingConv}
-            placeholder={dev.active ? "modo comandante — fale técnico" : t("chat.placeholder")}
+            placeholder={dev.comandanteAtivo ? "modo comandante — fale técnico" : t("chat.placeholder")}
             className="flex-1 resize-none bg-transparent outline-none text-sm sm:text-base text-foreground placeholder:text-muted-foreground/70 max-h-40 py-2"
           />
           <button
             type="submit"
             disabled={!input.trim() || isSending}
             className={`shrink-0 w-10 h-10 rounded-full text-white flex items-center justify-center shadow-soft hover:shadow-glow disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:scale-105 ${
-              dev.active ? "bg-violet-600 hover:bg-violet-700" : "bg-gradient-primary"
+              dev.editorAtivo ? "bg-violet-600 hover:bg-violet-700" : "bg-gradient-primary"
             }`}
             aria-label={t("common.send")}
           >
@@ -782,7 +782,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
           </button>
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground/80 text-center">
-          {dev.active
+          {dev.editorAtivo
             ? "Modo Comandante ativo — sessões não contam XP, não aparecem no histórico normal."
             : t("chat.footer")}
         </p>
