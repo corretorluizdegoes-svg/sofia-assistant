@@ -602,20 +602,12 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
             </h1>
           </Link>
           {(() => {
-            const titulo = conversaAtiva?.title?.trim() ?? "";
-            const ehPlaceholder = titulo === "" || titulo === "Nova conversa";
+            const subtituloInstitucional = "Sistema Orientado ao Fluxo Integrado de Aprendizado";
             const exibido = conversaAtiva?.disciplina
               ? curr.disciplinaNome(conversaAtiva.disciplina)
-              : titulo || "Nova conversa";
+              : subtituloInstitucional;
             return (
-              <p
-                className={`text-xs truncate ${
-                  ehPlaceholder && !conversaAtiva?.disciplina
-                    ? "text-muted-foreground/50 italic"
-                    : "text-muted-foreground"
-                }`}
-                title={exibido}
-              >
+              <p className="text-xs text-muted-foreground truncate" title={exibido}>
                 {exibido}
               </p>
             );
