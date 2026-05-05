@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import {
   Plus, Send, Trash2, BookOpen, User, Sparkles, MessageCircle, Network, Target,
-  Package, Paperclip, Terminal, X,
+  Package, Paperclip, Terminal, X, Pencil, Check,
 } from "lucide-react";
+import { gerarTituloDeMensagem, TITULO_CONVERSA_MAX } from "@/lib/titulo-conversa";
 import { useTranslation } from "react-i18next";
 import { useProgresso } from "@/hooks/useProgresso";
 import { useToast } from "@/hooks/use-toast";
@@ -66,6 +67,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     apagarConversa,
     salvarMensagem,
     setMensagensLocal,
+    renomearConversa,
   } = useConversas();
 
   const [input, setInput] = useState("");
@@ -74,6 +76,8 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   const [arquivoAnexado, setArquivoAnexado] = useState<{ nome: string; conteudo: string } | null>(null);
   const [gerandoPacote, setGerandoPacote] = useState(false);
   const [comandSheet, setComandSheet] = useState(false);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [tituloDraft, setTituloDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { registrarInteracao, nivelAtual, xp, topicosExplorados, conquistas, totalMensagens } = useProgresso();
@@ -396,6 +400,18 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
 
     await salvarMensagem(userMsg);
 
+    // Auto-título: primeira mensagem do usuário em conversa normal sem título real.
+    if (!ehSessaoDev && mensagens.filter((m) => m.role === "user").length === 0) {
+      const tituloAtual = conversaAtiva?.title?.trim() ?? "";
+      const ehPlaceholder = tituloAtual === "" || tituloAtual === "Nova conversa";
+      if (ehPlaceholder) {
+        const novoTitulo = gerarTituloDeMensagem(texto);
+        if (novoTitulo && conversaAtivaId) {
+          void renomearConversa(conversaAtivaId, novoTitulo);
+        }
+      }
+    }
+
     // Sessão dev: NÃO conta XP, NÃO detecta módulos
     if (!ehSessaoDev) {
       const resultado = await registrarInteracao(texto);
@@ -535,6 +551,24 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
 
   const NivelIcon = nivelIcon(nivelAtual.nivel);
 
+  function iniciarEdicao(c: Conversa) {
+    setEditandoId(c.id);
+    setTituloDraft(c.title ?? "");
+  }
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setTituloDraft("");
+  }
+  async function confirmarEdicao() {
+    const novo = tituloDraft.trim().slice(0, TITULO_CONVERSA_MAX);
+    if (!novo || !editandoId) {
+      cancelarEdicao();
+      return;
+    }
+    await renomearConversa(editandoId, novo);
+    cancelarEdicao();
+  }
+
   return (
     <section className="flex-1 min-w-0 flex flex-col h-full glass-strong rounded-3xl overflow-hidden">
       {/* Header */}
@@ -567,9 +601,25 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
               )}
             </h1>
           </Link>
-          <p className="text-xs text-muted-foreground truncate">
-            Sistema Orientado ao Fluxo Integrado de Aprendizado
-          </p>
+          {(() => {
+            const titulo = conversaAtiva?.title?.trim() ?? "";
+            const ehPlaceholder = titulo === "" || titulo === "Nova conversa";
+            const exibido = conversaAtiva?.disciplina
+              ? curr.disciplinaNome(conversaAtiva.disciplina)
+              : titulo || "Nova conversa";
+            return (
+              <p
+                className={`text-xs truncate ${
+                  ehPlaceholder && !conversaAtiva?.disciplina
+                    ? "text-muted-foreground/50 italic"
+                    : "text-muted-foreground"
+                }`}
+                title={exibido}
+              >
+                {exibido}
+              </p>
+            );
+          })()}
         </div>
         <div className="hidden sm:inline-flex items-center gap-1.5 rounded-full tone-blue px-2.5 py-1 text-xs font-semibold">
           <NivelIcon className="w-3.5 h-3.5" strokeWidth={1.75} />
@@ -605,6 +655,8 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/40 bg-white/30 overflow-x-auto scrollbar-soft">
           {conversasNormais.map((c: Conversa) => {
             const ativa = c.id === conversaAtivaId;
+            const editando = editandoId === c.id;
+            const tituloVisivel = c.disciplina ? curr.disciplinaNome(c.disciplina) : c.title;
             return (
               <div
                 key={c.id}
@@ -614,22 +666,60 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
                     : "bg-white/70 text-foreground/70 hover:bg-white"
                 }`}
               >
-                <button
-                  onClick={() => trocarConversa(c.id)}
-                  className="px-3 py-1.5 max-w-[180px] truncate inline-flex items-center gap-1.5"
-                  title={c.title}
-                >
-                  {c.disciplina && <BookOpen className="w-3 h-3" strokeWidth={1.75} />}
-                  {c.disciplina ? curr.disciplinaNome(c.disciplina) : c.title}
-                </button>
-                {ativa && conversasNormais.length > 1 && (
-                  <button
-                    onClick={() => apagarConversa(c.id)}
-                    className="pr-2 opacity-70 hover:opacity-100"
-                    aria-label={t("chat.deleteAria")}
-                  >
-                    <Trash2 className="w-3 h-3" strokeWidth={1.75} />
-                  </button>
+                {editando ? (
+                  <div className="flex items-center gap-1 pl-3 pr-1 py-0.5">
+                    <input
+                      autoFocus
+                      value={tituloDraft}
+                      maxLength={TITULO_CONVERSA_MAX}
+                      onChange={(e) => setTituloDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); void confirmarEdicao(); }
+                        if (e.key === "Escape") { e.preventDefault(); cancelarEdicao(); }
+                      }}
+                      onBlur={() => void confirmarEdicao()}
+                      className={`bg-transparent outline-none text-xs w-[160px] ${ativa ? "text-white placeholder:text-white/60" : "text-foreground"}`}
+                    />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void confirmarEdicao()}
+                      className="opacity-80 hover:opacity-100"
+                      aria-label="Confirmar"
+                    >
+                      <Check className="w-3 h-3" strokeWidth={2} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => trocarConversa(c.id)}
+                      className="px-3 py-1.5 max-w-[180px] truncate inline-flex items-center gap-1.5"
+                      title={tituloVisivel}
+                    >
+                      {c.disciplina && <BookOpen className="w-3 h-3" strokeWidth={1.75} />}
+                      {tituloVisivel}
+                    </button>
+                    {!c.disciplina && (
+                      <button
+                        onClick={() => iniciarEdicao(c)}
+                        className="opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity px-1"
+                        aria-label="Renomear conversa"
+                        title="Renomear"
+                      >
+                        <Pencil className="w-3 h-3" strokeWidth={1.75} />
+                      </button>
+                    )}
+                    {ativa && conversasNormais.length > 1 && (
+                      <button
+                        onClick={() => apagarConversa(c.id)}
+                        className="pr-2 opacity-70 hover:opacity-100"
+                        aria-label={t("chat.deleteAria")}
+                      >
+                        <Trash2 className="w-3 h-3" strokeWidth={1.75} />
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             );
