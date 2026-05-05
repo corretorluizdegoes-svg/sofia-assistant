@@ -265,9 +265,6 @@ export default function MapaMental() {
         return ge;
       });
 
-    // Selecionar e selecionar labels: agora os labels vivem dentro de g.float
-    nodeSel.selectAll<SVGTextElement, MapNode>("g.float text.label").text((d) => nodeLabel(d as MapNode));
-
     // labels (re-aplica em mudança de idioma)
     nodeSel.select<SVGTextElement>("text.label").text((d) => nodeLabel(d));
 
