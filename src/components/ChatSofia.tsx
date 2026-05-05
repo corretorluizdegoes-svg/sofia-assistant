@@ -551,6 +551,24 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
 
   const NivelIcon = nivelIcon(nivelAtual.nivel);
 
+  function iniciarEdicao(c: Conversa) {
+    setEditandoId(c.id);
+    setTituloDraft(c.title ?? "");
+  }
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setTituloDraft("");
+  }
+  async function confirmarEdicao() {
+    const novo = tituloDraft.trim().slice(0, TITULO_CONVERSA_MAX);
+    if (!novo || !editandoId) {
+      cancelarEdicao();
+      return;
+    }
+    await renomearConversa(editandoId, novo);
+    cancelarEdicao();
+  }
+
   return (
     <section className="flex-1 min-w-0 flex flex-col h-full glass-strong rounded-3xl overflow-hidden">
       {/* Header */}
