@@ -219,19 +219,22 @@ export default function MapaMental() {
       .data(simNodes, (d) => d.id)
       .join((enter) => {
         const ge = enter.append("g").attr("class", "node").style("cursor", "pointer");
-        ge.append("circle")
+        // wrapper interno onde aplicamos o "float" estético — mantém o transform
+        // do d3 (translate x,y) intacto no g.node externo.
+        const gf = ge.append("g").attr("class", "float");
+        gf.append("circle")
           .attr("class", "glow")
           .attr("r", 22)
           .attr("fill", (d) => d.glow_color)
           .attr("opacity", 0.18)
           .style("filter", "blur(10px)");
-        ge.append("circle")
+        gf.append("circle")
           .attr("class", "core")
           .attr("r", (d) => (d.modulo_id === "custom" ? 5 : d.id.startsWith("mod:") ? 9 : 6))
           .attr("fill", (d) => d.glow_color)
           .attr("stroke", "rgba(255,255,255,0.7)")
           .attr("stroke-width", 0.6);
-        ge.append("text")
+        gf.append("text")
           .attr("class", "label")
           .attr("dy", 26)
           .attr("text-anchor", "middle")
@@ -239,8 +242,31 @@ export default function MapaMental() {
           .attr("font-family", "Plus Jakarta Sans, system-ui")
           .attr("fill", "rgba(255,255,255,0.78)")
           .attr("pointer-events", "none");
+        // Parâmetros aleatórios de oscilação por node — fixados na montagem.
+        ge.each(function (d) {
+          const dd = d as MapNode & {
+            __osc?: {
+              ax: number; ay: number;
+              fx: number; fy: number;
+              px: number; py: number;
+              baseGlow: number;
+            };
+          };
+          dd.__osc = {
+            ax: 2 + Math.random() * 2,            // 2-4px
+            ay: 2 + Math.random() * 2,
+            fx: (2 * Math.PI) / (3 + Math.random() * 4), // período 3-7s
+            fy: (2 * Math.PI) / (3 + Math.random() * 4),
+            px: Math.random() * Math.PI * 2,
+            py: Math.random() * Math.PI * 2,
+            baseGlow: 0.18,
+          };
+        });
         return ge;
       });
+
+    // Selecionar e selecionar labels: agora os labels vivem dentro de g.float
+    nodeSel.selectAll<SVGTextElement, MapNode>("g.float text.label").text((d) => nodeLabel(d as MapNode));
 
     // labels (re-aplica em mudança de idioma)
     nodeSel.select<SVGTextElement>("text.label").text((d) => nodeLabel(d));
