@@ -591,6 +591,32 @@ export default function MapaMental() {
       {/* SVG */}
       <svg ref={svgRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
         <g ref={gRef}>
+          {nodes.some((n) => n.unplaced) && (
+            <g className="arrival-area" pointerEvents="none">
+              <rect
+                x={ARRIVAL_AREA.x}
+                y={ARRIVAL_AREA.y}
+                width={ARRIVAL_AREA.w}
+                height={ARRIVAL_AREA.h}
+                rx={20}
+                fill="rgba(167,139,250,0.05)"
+                stroke="rgba(167,139,250,0.35)"
+                strokeWidth={1}
+                strokeDasharray="6 6"
+              />
+              <text
+                x={ARRIVAL_AREA.x + ARRIVAL_AREA.w / 2}
+                y={ARRIVAL_AREA.y + 22}
+                textAnchor="middle"
+                fontSize={11}
+                fill="rgba(167,139,250,0.7)"
+                fontFamily="Plus Jakarta Sans, system-ui"
+                style={{ letterSpacing: "0.15em", textTransform: "uppercase" }}
+              >
+                {t("mindMap.arrivalArea", { defaultValue: "Área de chegada" })}
+              </text>
+            </g>
+          )}
           <g className="links" />
           <g className="nodes" />
         </g>
