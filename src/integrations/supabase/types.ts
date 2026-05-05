@@ -119,6 +119,7 @@ export type Database = {
           label: string
           modulo_id: string | null
           node_key: string
+          notes: string | null
           updated_at: string
           user_id: string
           x: number
@@ -133,6 +134,7 @@ export type Database = {
           label: string
           modulo_id?: string | null
           node_key: string
+          notes?: string | null
           updated_at?: string
           user_id: string
           x?: number
@@ -147,6 +149,7 @@ export type Database = {
           label?: string
           modulo_id?: string | null
           node_key?: string
+          notes?: string | null
           updated_at?: string
           user_id?: string
           x?: number

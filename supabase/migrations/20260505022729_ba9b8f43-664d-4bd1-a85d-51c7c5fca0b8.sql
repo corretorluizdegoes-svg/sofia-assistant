@@ -1,0 +1,1 @@
+ALTER TABLE public.mind_map_nodes ADD COLUMN IF NOT EXISTS notes text;

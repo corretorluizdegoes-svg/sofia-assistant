@@ -26,6 +26,7 @@ export type MapNode = {
   is_custom: boolean;
   x: number;
   y: number;
+  notes?: string | null;
   // True quando o node foi criado mas o usuário ainda não o posicionou.
   // Sentinela: persistido como (x=0, y=0) no banco para is_custom=true.
   unplaced?: boolean;
@@ -153,6 +154,7 @@ export function useMapaMental() {
             is_custom: n.is_custom,
             x: n.x,
             y: n.y,
+            notes: (n as { notes?: string | null }).notes ?? null,
             unplaced: isUnplaced,
             fx: isUnplaced ? null : n.x,
             fy: isUnplaced ? null : n.y,
@@ -476,6 +478,43 @@ export function useMapaMental() {
     }
   }, [enqueue, flush, reinsertNode, addEdge, removeEdge]);
 
+  // Atualiza anotações de um nó (auto-save com debounce no consumidor).
+  const updateNotes = useCallback(
+    async (id: string, notes: string) => {
+      if (!user) return;
+      setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, notes } : n)));
+      await supabase
+        .from("mind_map_nodes")
+        .update({ notes })
+        .eq("user_id", user.id)
+        .eq("node_key", id);
+    },
+    [user],
+  );
+
+  // Atualização em lote de posições (usado pelo "Organizar").
+  const bulkUpdatePositions = useCallback(
+    async (positions: { id: string; x: number; y: number }[]) => {
+      if (!user) return;
+      setNodes((prev) =>
+        prev.map((n) => {
+          const p = positions.find((pp) => pp.id === n.id);
+          return p ? { ...n, x: p.x, y: p.y, fx: p.x, fy: p.y, unplaced: false } : n;
+        }),
+      );
+      await Promise.all(
+        positions.map((p) =>
+          supabase
+            .from("mind_map_nodes")
+            .update({ x: p.x, y: p.y })
+            .eq("user_id", user.id)
+            .eq("node_key", p.id),
+        ),
+      );
+    },
+    [user],
+  );
+
   return {
     nodes,
     edges,
@@ -487,6 +526,8 @@ export function useMapaMental() {
     markPlaced,
     addEdge,
     removeEdge,
+    updateNotes,
+    bulkUpdatePositions,
     undo,
     redo,
     canUndo: undoStack.current.length > 0,

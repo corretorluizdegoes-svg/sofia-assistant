@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
-import { Link } from "react-router-dom";
-import { ArrowLeft, X, Sparkles, Plus, Link2, Undo2, Redo2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, X, Sparkles, Plus, Link2, Undo2, Redo2, LayoutGrid, MessageCircle, Loader2, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { StarField } from "@/components/StarField";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { useMapaMental, MapNode } from "@/hooks/useMapaMental";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +18,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { useCurriculoI18n, translateLabel } from "@/i18n/curriculo";
+import { useCurriculoI18n } from "@/i18n/curriculo";
 import { encontrarDisciplina } from "@/lib/sofia-data";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -60,6 +62,8 @@ export default function MapaMental() {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const simRef = useRef<d3.Simulation<MapNode, undefined> | null>(null);
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     nodes,
     edges,
@@ -71,6 +75,8 @@ export default function MapaMental() {
     markPlaced,
     addEdge,
     removeEdge,
+    updateNotes,
+    bulkUpdatePositions,
     undo,
     redo,
     canUndo,
@@ -83,6 +89,12 @@ export default function MapaMental() {
   const [edgeCard, setEdgeCard] = useState<EdgeCardState | null>(null);
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState("");
+  const [organizing, setOrganizing] = useState(false);
+  const [selectedEdge, setSelectedEdge] = useState<{ s: string; t: string } | null>(null);
+  const [panelNode, setPanelNode] = useState<MapNode | null>(null);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSaveState, setNotesSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const notesTimer = useRef<number | null>(null);
 
   // refs sempre atuais p/ handlers do d3
   const modeRef = useRef(mode);
@@ -200,7 +212,9 @@ export default function MapaMental() {
         event.stopPropagation();
         const s = typeof d.source === "string" ? d.source : (d.source as MapNode).id;
         const tt = typeof d.target === "string" ? d.target : (d.target as MapNode).id;
-        // posição do clique em coordenadas de tela
+        setSelectedEdge({ s, t: tt });
+        setPanelNode(null);
+        setSelected(null);
         const px = event.clientX;
         const py = event.clientY;
         openEdgeCard(s, tt, px, py);
@@ -282,6 +296,8 @@ export default function MapaMental() {
         return;
       }
       setSelected(d);
+      setPanelNode(d);
+      setSelectedEdge(null);
       setEdgeCard(null);
     });
 
@@ -384,6 +400,8 @@ export default function MapaMental() {
     svg.on("click", () => {
       setSelected(null);
       setEdgeCard(null);
+      setSelectedEdge(null);
+      setPanelNode(null);
       if (modeRef.current === "connecting") {
         setMode("idle");
         setPendingSource(null);
@@ -445,6 +463,36 @@ export default function MapaMental() {
       .selectAll<SVGCircleElement, MapNode>("g.node circle.glow")
       .attr("opacity", (d) => (pendingSource === d.id ? 0.55 : 0.18));
   }, [pendingSource]);
+
+  // Realça edge selecionada (e os 2 nodes conectados); apaga o resto.
+  useEffect(() => {
+    if (!gRef.current) return;
+    const root = d3.select(gRef.current);
+    const lines = root.select(".links").selectAll<SVGLineElement, { source: MapNode | string; target: MapNode | string }>("line");
+    const nodesSel = root.select(".nodes").selectAll<SVGGElement, MapNode>("g.node");
+    if (!selectedEdge) {
+      lines.attr("stroke-opacity", 1).attr("stroke-width", 1.5);
+      nodesSel.style("opacity", 1);
+      nodesSel.select<SVGCircleElement>("circle.glow").attr("r", 22);
+      return;
+    }
+    const { s, t: tt } = selectedEdge;
+    lines
+      .attr("stroke-opacity", (d) => {
+        const ds = typeof d.source === "string" ? d.source : (d.source as MapNode).id;
+        const dt = typeof d.target === "string" ? d.target : (d.target as MapNode).id;
+        return (ds === s && dt === tt) || (ds === tt && dt === s) ? 1 : 0.2;
+      })
+      .attr("stroke-width", (d) => {
+        const ds = typeof d.source === "string" ? d.source : (d.source as MapNode).id;
+        const dt = typeof d.target === "string" ? d.target : (d.target as MapNode).id;
+        return (ds === s && dt === tt) || (ds === tt && dt === s) ? 3.2 : 1.5;
+      });
+    nodesSel.style("opacity", (d) => (d.id === s || d.id === tt ? 1 : 0.35));
+    nodesSel
+      .select<SVGCircleElement>("circle.glow")
+      .attr("r", (d) => (d.id === s || d.id === tt ? 32 : 22));
+  }, [selectedEdge, nodes.length, edges.length]);
 
   // Tecla Escape
   useEffect(() => {
@@ -530,29 +578,172 @@ export default function MapaMental() {
     setEdgeCard((curr) => curr ? { ...curr, loading: false, text: text ?? "" } : curr);
   }
 
-  // Conexões do nó selecionado (labels já traduzidos)
-  const selectedConexoes = useMemo(() => {
-    if (!selected) return [] as string[];
-    const out: string[] = [];
-    for (const e of edges) {
-      const s = typeof e.source === "string" ? e.source : e.source.id;
-      const tt = typeof e.target === "string" ? e.target : e.target.id;
-      const otherId = s === selected.id ? tt : tt === selected.id ? s : null;
-      if (!otherId) continue;
-      const n = nodes.find((x) => x.id === otherId);
-      if (n) out.push(nodeLabel(n));
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, edges, nodes, i18n.language]);
-
   function handleAdd() {
     const label = newLabel.trim();
     if (!label) return;
     const node = addNode(label);
     setAdding(false);
     setNewLabel("");
-    setSelected(node);
+    setPanelNode(node);
+  }
+
+  // ─── Painel lateral: notes auto-save ──────────────────────
+  useEffect(() => {
+    if (!panelNode) {
+      setNotesDraft("");
+      setNotesSaveState("idle");
+      if (notesTimer.current) window.clearTimeout(notesTimer.current);
+      return;
+    }
+    setNotesDraft(panelNode.notes ?? "");
+    setNotesSaveState("idle");
+  }, [panelNode?.id]);
+
+  function handleNotesChange(val: string) {
+    setNotesDraft(val);
+    if (!panelNode) return;
+    setNotesSaveState("saving");
+    if (notesTimer.current) window.clearTimeout(notesTimer.current);
+    const id = panelNode.id;
+    notesTimer.current = window.setTimeout(async () => {
+      await updateNotes(id, val);
+      setNotesSaveState("saved");
+      window.setTimeout(() => setNotesSaveState((s) => (s === "saved" ? "idle" : s)), 1500);
+    }, 1000);
+  }
+
+  // Conexões do nó do painel
+  const panelConexoes = useMemo(() => {
+    if (!panelNode) return [] as MapNode[];
+    const out: MapNode[] = [];
+    for (const e of edges) {
+      const s = typeof e.source === "string" ? e.source : e.source.id;
+      const tt = typeof e.target === "string" ? e.target : e.target.id;
+      const otherId = s === panelNode.id ? tt : tt === panelNode.id ? s : null;
+      if (!otherId) continue;
+      const n = nodes.find((x) => x.id === otherId);
+      if (n) out.push(n);
+    }
+    return out;
+  }, [panelNode, edges, nodes]);
+
+  // Centraliza o mapa (zoom) em um node — usado pelos chips de conexão.
+  function focusNode(targetId: string) {
+    if (!svgRef.current) return;
+    const target = nodes.find((n) => n.id === targetId);
+    if (!target) return;
+    const w = svgRef.current.clientWidth;
+    const h = svgRef.current.clientHeight;
+    const tx = w / 2 - (target.x ?? 0) * 0.9;
+    const ty = h / 2 - (target.y ?? 0) * 0.9;
+    d3.select(svgRef.current)
+      .transition()
+      .duration(700)
+      .call(
+        d3.zoom<SVGSVGElement, unknown>().transform as never,
+        d3.zoomIdentity.translate(tx, ty).scale(0.9),
+      );
+    setPanelNode(target);
+  }
+
+  // Conversar com Sofia sobre este node
+  async function conversarSobreNode() {
+    if (!panelNode || !user) return;
+    const disciplina = encontrarDisciplina(panelNode.label)?.disciplina?.nome ?? null;
+    const { data } = await supabase
+      .from("conversations")
+      .insert({
+        user_id: user.id,
+        title: nodeLabel(panelNode),
+        disciplina,
+      })
+      .select()
+      .single();
+    if (data) navigate(`/app`);
+  }
+
+  // ─── Auto-organizar ───────────────────────────────────────
+  // Distribui nodes em 5 regiões do canvas por módulo, depois aplica
+  // d3-force só de repulsão dentro de cada região, anima 800ms e salva.
+  const REGIONS: Record<string, { cx: number; cy: number }> = {
+    matematica: { cx: 0, cy: 380 },
+    computacao: { cx: -560, cy: 380 },
+    inteligencia_artificial: { cx: 0, cy: 0 },
+    computacao_simbolica: { cx: -560, cy: -380 },
+    fisica_quantica: { cx: 560, cy: -380 },
+    convergencias: { cx: 560, cy: 380 },
+    custom: { cx: 0, cy: 0 },
+  };
+
+  async function organizar() {
+    if (organizing || nodes.length === 0) return;
+    setOrganizing(true);
+    setSelected(null);
+    setPanelNode(null);
+    setSelectedEdge(null);
+
+    // 1) Agrupa por módulo e calcula posições alvo dentro de cada região.
+    const buckets = new Map<string, MapNode[]>();
+    for (const n of nodes) {
+      const key = REGIONS[n.modulo_id] ? n.modulo_id : "custom";
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(n);
+    }
+    const targets: { id: string; x: number; y: number }[] = [];
+    for (const [mod, list] of buckets) {
+      const center = REGIONS[mod] ?? REGIONS.custom;
+      // Coloca em grid radial dentro da região
+      const tmp = list.map((n, i) => {
+        const ang = (i / Math.max(list.length, 1)) * Math.PI * 2;
+        const r = 40 + Math.sqrt(i) * 38;
+        return {
+          id: n.id,
+          x: center.cx + Math.cos(ang) * r,
+          y: center.cy + Math.sin(ang) * r,
+        };
+      });
+      // Espaçamento: pequena simulação de colisão localizada
+      type P = { id: string; x: number; y: number; vx: number; vy: number };
+      const pts: P[] = tmp.map((p) => ({ ...p, vx: 0, vy: 0 }));
+      const sim = d3
+        .forceSimulation(pts as unknown as d3.SimulationNodeDatum[])
+        .force("collide", d3.forceCollide(70))
+        .force("x", d3.forceX(center.cx).strength(0.08))
+        .force("y", d3.forceY(center.cy).strength(0.08))
+        .stop();
+      for (let i = 0; i < 80; i++) sim.tick();
+      pts.forEach((p) => targets.push({ id: p.id, x: p.x, y: p.y }));
+    }
+
+    // 2) Animação 800ms ease-in-out via d3 transitions sobre g.node.
+    if (gRef.current) {
+      const sel = d3
+        .select(gRef.current)
+        .select(".nodes")
+        .selectAll<SVGGElement, MapNode>("g.node");
+      sel
+        .transition()
+        .duration(800)
+        .ease(d3.easeCubicInOut)
+        .attrTween("transform", function (d) {
+          const target = targets.find((tt) => tt.id === d.id);
+          if (!target) return () => `translate(${d.x ?? 0},${d.y ?? 0})`;
+          const i = d3.interpolate([d.x ?? 0, d.y ?? 0], [target.x, target.y]);
+          return (k: number) => {
+            const [nx, ny] = i(k);
+            d.x = nx;
+            d.y = ny;
+            d.fx = nx;
+            d.fy = ny;
+            return `translate(${nx},${ny})`;
+          };
+        });
+    }
+
+    await new Promise((r) => setTimeout(r, 850));
+    await bulkUpdatePositions(targets);
+    if (simRef.current) simRef.current.stop();
+    setOrganizing(false);
   }
 
   // Cores p/ borda do edgeCard (gradiente)
@@ -609,6 +800,16 @@ export default function MapaMental() {
         >
           <Redo2 className="w-3.5 h-3.5" strokeWidth={1.75} />
         </button>
+        {!organizing && (
+          <button
+            onClick={() => void organizar()}
+            title={t("mindMap.organize", { defaultValue: "Organizar" })}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-white/85 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/30 transition-all backdrop-blur-md"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" strokeWidth={1.75} />
+            {t("mindMap.organize", { defaultValue: "Organizar" })}
+          </button>
+        )}
         <button
           onClick={() => setAdding(true)}
           className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-white/85 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/30 transition-all backdrop-blur-md shadow-[0_0_18px_rgba(167,139,250,0.18)]"
@@ -681,55 +882,96 @@ export default function MapaMental() {
         </div>
       )}
 
-      {/* Card flutuante do nó */}
-      {selected && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 w-[min(420px,90vw)] bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-5 text-white animate-fade-in">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span
-                className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ background: selected.glow_color, boxShadow: `0 0 12px ${selected.glow_color}` }}
-              />
-              <h2 className="font-display font-semibold text-lg leading-tight truncate">
-                {nodeLabel(selected)}
-              </h2>
+      {/* Painel lateral do node */}
+      {panelNode && (
+        <aside
+          className="absolute top-0 right-0 bottom-0 z-30 w-[320px] bg-white/5 backdrop-blur-2xl border-l border-white/10 text-white animate-slide-in-right flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="p-5 border-b border-white/10">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ background: panelNode.glow_color, boxShadow: `0 0 12px ${panelNode.glow_color}` }}
+                />
+                <h2 className="font-display font-semibold text-base leading-tight truncate">
+                  {nodeLabel(panelNode)}
+                </h2>
+              </div>
+              <button onClick={() => setPanelNode(null)} className="text-white/40 hover:text-white shrink-0">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button onClick={() => setSelected(null)} className="text-white/40 hover:text-white">
-              <X className="w-4 h-4" />
-            </button>
+            {panelNode.descricao && (
+              <p className="mt-2 text-xs text-white/65 leading-relaxed">{panelNode.descricao}</p>
+            )}
+            {panelConexoes.length > 0 && (
+              <div className="mt-3">
+                <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1.5">
+                  {t("mindMap.connectedTo")}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {panelConexoes.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => focusNode(c.id)}
+                      className="text-[11px] bg-white/10 hover:bg-white/20 rounded-full px-2 py-0.5 text-white/85 transition-colors"
+                      style={{ boxShadow: `inset 0 0 0 1px ${c.glow_color}40` }}
+                    >
+                      {nodeLabel(c)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          {selected.descricao && (
-            <p className="mt-2 text-xs text-white/70 leading-relaxed">{selected.descricao}</p>
-          )}
-          {selectedConexoes.length > 0 && (
-            <div className="mt-3">
-              <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1.5">
-                {t("mindMap.connectedTo")}
+
+          {/* Body — anotações */}
+          <div className="flex-1 p-4 flex flex-col min-h-0">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-white/40">
+                {t("mindMap.notesTitle", { defaultValue: "Anotações" })}
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {selectedConexoes.map((l, i) => (
-                  <span key={i} className="text-[11px] bg-white/10 rounded-full px-2 py-0.5 text-white/80">
-                    {l}
-                  </span>
-                ))}
+              <div className="text-[10px] text-white/40 flex items-center gap-1 h-3.5">
+                {notesSaveState === "saving" && (
+                  <>
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    <span>{t("mindMap.notesSaving", { defaultValue: "salvando…" })}</span>
+                  </>
+                )}
+                {notesSaveState === "saved" && (
+                  <>
+                    <Check className="w-2.5 h-2.5" />
+                    <span>{t("mindMap.notesSaved", { defaultValue: "salvo" })}</span>
+                  </>
+                )}
               </div>
             </div>
-          )}
-          <div className="mt-4 flex gap-2">
+            <Textarea
+              value={notesDraft}
+              onChange={(e) => handleNotesChange(e.target.value)}
+              placeholder={t("mindMap.notesPlaceholder", {
+                defaultValue: "Suas anotações sobre este conceito...",
+              })}
+              className="flex-1 resize-none bg-white/5 border-white/10 text-white placeholder:text-white/30 text-sm leading-relaxed rounded-2xl"
+            />
+          </div>
+
+          {/* Rodapé */}
+          <div className="p-4 border-t border-white/10">
             <Button
               size="sm"
-              variant="outline"
-              className="bg-white/5 border-white/10 text-white hover:bg-white/10 rounded-full text-xs"
-              onClick={() => {
-                setPendingSource(selected.id);
-                setMode("connecting");
-                setSelected(null);
-              }}
+              onClick={() => void conversarSobreNode()}
+              className="w-full bg-white/10 hover:bg-white/20 border border-white/15 text-white rounded-full text-xs"
             >
-              {t("mindMap.connectToOther")}
+              <MessageCircle className="w-3.5 h-3.5 mr-1.5" strokeWidth={1.75} />
+              {t("mindMap.talkSofia", { defaultValue: "Conversar com Sofia sobre este tema" })}
             </Button>
           </div>
-        </div>
+        </aside>
       )}
 
       {/* Card flutuante da CONEXÃO (sobre a linha) */}
