@@ -47,6 +47,7 @@ export default function MapaMental() {
     updateNodePosition,
     commitNodeMove,
     addNode,
+    markPlaced,
     addEdge,
     removeEdge,
     undo,
