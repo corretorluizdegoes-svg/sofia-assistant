@@ -267,13 +267,16 @@ export default function MapaMental() {
       .attr("opacity", (d) => (pendingSource === d.id ? 0.55 : 0.18));
 
     // Drag
+    // Comportamento padrão: ao soltar, mantém fx/fy = posição final (node
+    // trava onde foi solto, persistido no banco).
+    // Se o node estava "unplaced" (Área de chegada): se for solto FORA da
+    // área → vira placed; se for solto DENTRO → continua unplaced no slot.
     const drag = d3
       .drag<SVGGElement, MapNode>()
       .on("start", (event, d) => {
         if (!event.active) sim.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
-        // guarda posição inicial p/ histórico (undo)
         (d as unknown as { __from?: { x: number; y: number } }).__from = {
           x: d.x ?? 0,
           y: d.y ?? 0,
@@ -285,9 +288,39 @@ export default function MapaMental() {
       })
       .on("end", (event, d) => {
         if (!event.active) sim.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-        if (typeof d.x === "number" && typeof d.y === "number") {
+        if (typeof d.x !== "number" || typeof d.y !== "number") return;
+
+        const wasUnplaced = !!d.unplaced;
+        const stillInArrival = pointInArrival(d.x, d.y);
+
+        if (wasUnplaced && stillInArrival) {
+          // Manteve no berçário — re-trava no slot original e não persiste
+          const from = (d as unknown as { __from?: { x: number; y: number } }).__from;
+          d.fx = from?.x ?? d.x;
+          d.fy = from?.y ?? d.y;
+          d.x = d.fx;
+          d.y = d.fy;
+          // força re-render do glow pra parar/continuar pulsando se mudou estado
+          d3.select(this as unknown as Element);
+          return;
+        }
+
+        // Caso normal: trava no destino e persiste
+        d.fx = d.x;
+        d.fy = d.y;
+
+        if (wasUnplaced) {
+          d.unplaced = false;
+          markPlaced(d.id, d.x, d.y);
+          // remove pulsação imediatamente
+          d3.select(gRef.current!)
+            .select(".nodes")
+            .selectAll<SVGGElement, MapNode>("g.node")
+            .filter((nn) => nn.id === d.id)
+            .select<SVGCircleElement>("circle.glow")
+            .interrupt("pulse")
+            .attr("opacity", 0.18);
+        } else {
           const from = (d as unknown as { __from?: { x: number; y: number } }).__from;
           if (from) {
             commitNodeMove(d.id, from, { x: d.x, y: d.y });
@@ -297,6 +330,23 @@ export default function MapaMental() {
         }
       });
     nodeSel.call(drag);
+
+    // ── Pulsação dos nodes "unplaced" (Área de chegada) ──
+    function tickPulse() {
+      nodeSel
+        .filter((d) => !!d.unplaced)
+        .select<SVGCircleElement>("circle.glow")
+        .transition("pulse")
+        .duration(900)
+        .attr("opacity", 0.55)
+        .attr("r", 28)
+        .transition("pulse")
+        .duration(900)
+        .attr("opacity", 0.18)
+        .attr("r", 22)
+        .on("end", tickPulse);
+    }
+    tickPulse();
 
     // Tick
     sim.on("tick", () => {
