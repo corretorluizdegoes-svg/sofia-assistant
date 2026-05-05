@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
-import { Link } from "react-router-dom";
-import { ArrowLeft, X, Sparkles, Plus, Link2, Undo2, Redo2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, X, Sparkles, Plus, Link2, Undo2, Redo2, LayoutGrid, MessageCircle, Loader2, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { StarField } from "@/components/StarField";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { useMapaMental, MapNode } from "@/hooks/useMapaMental";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +18,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { useCurriculoI18n, translateLabel } from "@/i18n/curriculo";
+import { useCurriculoI18n } from "@/i18n/curriculo";
 import { encontrarDisciplina } from "@/lib/sofia-data";
 import { supabase } from "@/integrations/supabase/client";
 
