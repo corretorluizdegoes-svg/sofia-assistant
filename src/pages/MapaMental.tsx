@@ -400,6 +400,8 @@ export default function MapaMental() {
     svg.on("click", () => {
       setSelected(null);
       setEdgeCard(null);
+      setSelectedEdge(null);
+      setPanelNode(null);
       if (modeRef.current === "connecting") {
         setMode("idle");
         setPendingSource(null);
