@@ -340,7 +340,7 @@ export default function MapaMental() {
         .duration(900)
         .attr("opacity", 0.55)
         .attr("r", 28)
-        .transition("pulse")
+        .transition()
         .duration(900)
         .attr("opacity", 0.18)
         .attr("r", 22)
