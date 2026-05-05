@@ -67,6 +67,7 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
     apagarConversa,
     salvarMensagem,
     setMensagensLocal,
+    renomearConversa,
   } = useConversas();
 
   const [input, setInput] = useState("");
