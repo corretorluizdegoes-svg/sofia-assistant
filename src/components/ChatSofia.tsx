@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import {
   Plus, Send, Trash2, BookOpen, User, Sparkles, MessageCircle, Network, Target,
-  Package, Paperclip, Terminal, X,
+  Package, Paperclip, Terminal, X, Pencil, Check,
 } from "lucide-react";
+import { gerarTituloDeMensagem, TITULO_CONVERSA_MAX } from "@/lib/titulo-conversa";
 import { useTranslation } from "react-i18next";
 import { useProgresso } from "@/hooks/useProgresso";
 import { useToast } from "@/hooks/use-toast";
