@@ -219,19 +219,22 @@ export default function MapaMental() {
       .data(simNodes, (d) => d.id)
       .join((enter) => {
         const ge = enter.append("g").attr("class", "node").style("cursor", "pointer");
-        ge.append("circle")
+        // wrapper interno onde aplicamos o "float" estético — mantém o transform
+        // do d3 (translate x,y) intacto no g.node externo.
+        const gf = ge.append("g").attr("class", "float");
+        gf.append("circle")
           .attr("class", "glow")
           .attr("r", 22)
           .attr("fill", (d) => d.glow_color)
           .attr("opacity", 0.18)
           .style("filter", "blur(10px)");
-        ge.append("circle")
+        gf.append("circle")
           .attr("class", "core")
           .attr("r", (d) => (d.modulo_id === "custom" ? 5 : d.id.startsWith("mod:") ? 9 : 6))
           .attr("fill", (d) => d.glow_color)
           .attr("stroke", "rgba(255,255,255,0.7)")
           .attr("stroke-width", 0.6);
-        ge.append("text")
+        gf.append("text")
           .attr("class", "label")
           .attr("dy", 26)
           .attr("text-anchor", "middle")
@@ -239,6 +242,26 @@ export default function MapaMental() {
           .attr("font-family", "Plus Jakarta Sans, system-ui")
           .attr("fill", "rgba(255,255,255,0.78)")
           .attr("pointer-events", "none");
+        // Parâmetros aleatórios de oscilação por node — fixados na montagem.
+        ge.each(function (d) {
+          const dd = d as MapNode & {
+            __osc?: {
+              ax: number; ay: number;
+              fx: number; fy: number;
+              px: number; py: number;
+              baseGlow: number;
+            };
+          };
+          dd.__osc = {
+            ax: 2 + Math.random() * 2,            // 2-4px
+            ay: 2 + Math.random() * 2,
+            fx: (2 * Math.PI) / (3 + Math.random() * 4), // período 3-7s
+            fy: (2 * Math.PI) / (3 + Math.random() * 4),
+            px: Math.random() * Math.PI * 2,
+            py: Math.random() * Math.PI * 2,
+            baseGlow: 0.18,
+          };
+        });
         return ge;
       });
 
@@ -367,7 +390,37 @@ export default function MapaMental() {
       }
     });
 
+    // ── Float estético contínuo (rAF) ──
+    // Aplica translate sutil em g.float SEM tocar em fx/fy/x/y do d3.
+    // Cada node tem fase/período próprios, então nunca ficam sincronizados.
+    // Pulsação do glow ±15% acompanha a oscilação do node — exceto nos
+    // unplaced, que têm sua própria pulsação maior controlada por tickPulse.
+    let rafId = 0;
+    const t0 = performance.now();
+    const floatSel = nodeSel.select<SVGGElement>("g.float");
+    floatSel.style("will-change", "transform");
+    function tickFloat(now: number) {
+      const t = (now - t0) / 1000;
+      floatSel.each(function (d) {
+        const osc = (d as MapNode & { __osc?: { ax: number; ay: number; fx: number; fy: number; px: number; py: number; baseGlow: number } }).__osc;
+        if (!osc) return;
+        const dx = Math.sin(t * osc.fx + osc.px) * osc.ax;
+        const dy = Math.cos(t * osc.fy + osc.py) * osc.ay;
+        (this as SVGGElement).setAttribute("transform", `translate(${dx.toFixed(2)},${dy.toFixed(2)})`);
+        if (!(d as MapNode).unplaced && pendingRef.current !== (d as MapNode).id) {
+          // pulsação ±15% do baseGlow (0.18) → 0.153 a 0.207
+          const phase = Math.sin(t * osc.fx + osc.px);
+          const op = osc.baseGlow * (1 + 0.15 * phase);
+          const glow = (this as SVGGElement).querySelector("circle.glow");
+          if (glow) (glow as SVGCircleElement).setAttribute("opacity", op.toFixed(3));
+        }
+      });
+      rafId = requestAnimationFrame(tickFloat);
+    }
+    rafId = requestAnimationFrame(tickFloat);
+
     return () => {
+      cancelAnimationFrame(rafId);
       sim.stop();
     };
     // re-cria quando mudam nós/arestas; idioma muda só os labels via outro effect
