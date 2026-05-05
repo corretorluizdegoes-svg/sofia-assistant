@@ -26,6 +26,7 @@ export type MapNode = {
   is_custom: boolean;
   x: number;
   y: number;
+  notes?: string | null;
   // True quando o node foi criado mas o usuário ainda não o posicionou.
   // Sentinela: persistido como (x=0, y=0) no banco para is_custom=true.
   unplaced?: boolean;
