@@ -212,7 +212,9 @@ export default function MapaMental() {
         event.stopPropagation();
         const s = typeof d.source === "string" ? d.source : (d.source as MapNode).id;
         const tt = typeof d.target === "string" ? d.target : (d.target as MapNode).id;
-        // posição do clique em coordenadas de tela
+        setSelectedEdge({ s, t: tt });
+        setPanelNode(null);
+        setSelected(null);
         const px = event.clientX;
         const py = event.clientY;
         openEdgeCard(s, tt, px, py);
