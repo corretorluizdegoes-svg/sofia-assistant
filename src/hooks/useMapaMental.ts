@@ -484,6 +484,7 @@ export function useMapaMental() {
     updateNodePosition,
     commitNodeMove,
     addNode,
+    markPlaced,
     addEdge,
     removeEdge,
     undo,
