@@ -33,6 +33,27 @@ type EdgeCardState = {
 
 const EDGE_FUN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sofia-explicar-conexao`;
 
+// "Área de chegada" — retângulo em coordenadas do mundo (SVG interno) onde
+// nodes recém-criados sem posição salva ficam empilhados pulsando até o
+// usuário arrastá-los pra fora. Coordenadas escolhidas pra cair no canto
+// inferior esquerdo no zoom inicial (translate(w/2, h/2) scale(0.7)).
+const ARRIVAL_AREA = { x: -780, y: 220, w: 280, h: 420 };
+const ARRIVAL_SLOT_H = 70;
+function arrivalSlotPos(index: number) {
+  return {
+    x: ARRIVAL_AREA.x + ARRIVAL_AREA.w / 2,
+    y: ARRIVAL_AREA.y + 40 + index * ARRIVAL_SLOT_H,
+  };
+}
+function pointInArrival(x: number, y: number): boolean {
+  return (
+    x >= ARRIVAL_AREA.x &&
+    x <= ARRIVAL_AREA.x + ARRIVAL_AREA.w &&
+    y >= ARRIVAL_AREA.y &&
+    y <= ARRIVAL_AREA.y + ARRIVAL_AREA.h
+  );
+}
+
 export default function MapaMental() {
   const { t, i18n } = useTranslation();
   const curr = useCurriculoI18n();
