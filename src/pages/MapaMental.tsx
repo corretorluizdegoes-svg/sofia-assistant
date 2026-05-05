@@ -294,6 +294,8 @@ export default function MapaMental() {
         return;
       }
       setSelected(d);
+      setPanelNode(d);
+      setSelectedEdge(null);
       setEdgeCard(null);
     });
 
