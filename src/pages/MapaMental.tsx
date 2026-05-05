@@ -407,7 +407,7 @@ export default function MapaMental() {
         const dx = Math.sin(t * osc.fx + osc.px) * osc.ax;
         const dy = Math.cos(t * osc.fy + osc.py) * osc.ay;
         (this as SVGGElement).setAttribute("transform", `translate(${dx.toFixed(2)},${dy.toFixed(2)})`);
-        if (!(d as MapNode).unplaced) {
+        if (!(d as MapNode).unplaced && pendingRef.current !== (d as MapNode).id) {
           // pulsação ±15% do baseGlow (0.18) → 0.153 a 0.207
           const phase = Math.sin(t * osc.fx + osc.px);
           const op = osc.baseGlow * (1 + 0.15 * phase);
