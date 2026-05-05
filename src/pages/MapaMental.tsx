@@ -390,7 +390,37 @@ export default function MapaMental() {
       }
     });
 
+    // ── Float estético contínuo (rAF) ──
+    // Aplica translate sutil em g.float SEM tocar em fx/fy/x/y do d3.
+    // Cada node tem fase/período próprios, então nunca ficam sincronizados.
+    // Pulsação do glow ±15% acompanha a oscilação do node — exceto nos
+    // unplaced, que têm sua própria pulsação maior controlada por tickPulse.
+    let rafId = 0;
+    const t0 = performance.now();
+    const floatSel = nodeSel.select<SVGGElement>("g.float");
+    floatSel.style("will-change", "transform");
+    function tickFloat(now: number) {
+      const t = (now - t0) / 1000;
+      floatSel.each(function (d) {
+        const osc = (d as MapNode & { __osc?: { ax: number; ay: number; fx: number; fy: number; px: number; py: number; baseGlow: number } }).__osc;
+        if (!osc) return;
+        const dx = Math.sin(t * osc.fx + osc.px) * osc.ax;
+        const dy = Math.cos(t * osc.fy + osc.py) * osc.ay;
+        (this as SVGGElement).setAttribute("transform", `translate(${dx.toFixed(2)},${dy.toFixed(2)})`);
+        if (!(d as MapNode).unplaced) {
+          // pulsação ±15% do baseGlow (0.18) → 0.153 a 0.207
+          const phase = Math.sin(t * osc.fx + osc.px);
+          const op = osc.baseGlow * (1 + 0.15 * phase);
+          const glow = (this as SVGGElement).querySelector("circle.glow");
+          if (glow) (glow as SVGCircleElement).setAttribute("opacity", op.toFixed(3));
+        }
+      });
+      rafId = requestAnimationFrame(tickFloat);
+    }
+    rafId = requestAnimationFrame(tickFloat);
+
     return () => {
+      cancelAnimationFrame(rafId);
       sim.stop();
     };
     // re-cria quando mudam nós/arestas; idioma muda só os labels via outro effect
