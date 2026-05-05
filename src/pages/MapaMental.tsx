@@ -578,29 +578,13 @@ export default function MapaMental() {
     setEdgeCard((curr) => curr ? { ...curr, loading: false, text: text ?? "" } : curr);
   }
 
-  // Conexões do nó selecionado (labels já traduzidos)
-  const selectedConexoes = useMemo(() => {
-    if (!selected) return [] as string[];
-    const out: string[] = [];
-    for (const e of edges) {
-      const s = typeof e.source === "string" ? e.source : e.source.id;
-      const tt = typeof e.target === "string" ? e.target : e.target.id;
-      const otherId = s === selected.id ? tt : tt === selected.id ? s : null;
-      if (!otherId) continue;
-      const n = nodes.find((x) => x.id === otherId);
-      if (n) out.push(nodeLabel(n));
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, edges, nodes, i18n.language]);
-
   function handleAdd() {
     const label = newLabel.trim();
     if (!label) return;
     const node = addNode(label);
     setAdding(false);
     setNewLabel("");
-    setSelected(node);
+    setPanelNode(node);
   }
 
   // ─── Painel lateral: notes auto-save ──────────────────────
