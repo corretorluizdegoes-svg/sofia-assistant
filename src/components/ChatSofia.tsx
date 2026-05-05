@@ -398,6 +398,18 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
 
     await salvarMensagem(userMsg);
 
+    // Auto-título: primeira mensagem do usuário em conversa normal sem título real.
+    if (!ehSessaoDev && mensagens.filter((m) => m.role === "user").length === 0) {
+      const tituloAtual = conversaAtiva?.title?.trim() ?? "";
+      const ehPlaceholder = tituloAtual === "" || tituloAtual === "Nova conversa";
+      if (ehPlaceholder) {
+        const novoTitulo = gerarTituloDeMensagem(texto);
+        if (novoTitulo && conversaAtivaId) {
+          void renomearConversa(conversaAtivaId, novoTitulo);
+        }
+      }
+    }
+
     // Sessão dev: NÃO conta XP, NÃO detecta módulos
     if (!ehSessaoDev) {
       const resultado = await registrarInteracao(texto);
