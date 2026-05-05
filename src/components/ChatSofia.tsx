@@ -581,9 +581,25 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
               )}
             </h1>
           </Link>
-          <p className="text-xs text-muted-foreground truncate">
-            Sistema Orientado ao Fluxo Integrado de Aprendizado
-          </p>
+          {(() => {
+            const titulo = conversaAtiva?.title?.trim() ?? "";
+            const ehPlaceholder = titulo === "" || titulo === "Nova conversa";
+            const exibido = conversaAtiva?.disciplina
+              ? curr.disciplinaNome(conversaAtiva.disciplina)
+              : titulo || "Nova conversa";
+            return (
+              <p
+                className={`text-xs truncate ${
+                  ehPlaceholder && !conversaAtiva?.disciplina
+                    ? "text-muted-foreground/50 italic"
+                    : "text-muted-foreground"
+                }`}
+                title={exibido}
+              >
+                {exibido}
+              </p>
+            );
+          })()}
         </div>
         <div className="hidden sm:inline-flex items-center gap-1.5 rounded-full tone-blue px-2.5 py-1 text-xs font-semibold">
           <NivelIcon className="w-3.5 h-3.5" strokeWidth={1.75} />
