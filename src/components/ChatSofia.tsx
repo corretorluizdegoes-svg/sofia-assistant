@@ -655,6 +655,8 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/40 bg-white/30 overflow-x-auto scrollbar-soft">
           {conversasNormais.map((c: Conversa) => {
             const ativa = c.id === conversaAtivaId;
+            const editando = editandoId === c.id;
+            const tituloVisivel = c.disciplina ? curr.disciplinaNome(c.disciplina) : c.title;
             return (
               <div
                 key={c.id}
@@ -664,22 +666,60 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
                     : "bg-white/70 text-foreground/70 hover:bg-white"
                 }`}
               >
-                <button
-                  onClick={() => trocarConversa(c.id)}
-                  className="px-3 py-1.5 max-w-[180px] truncate inline-flex items-center gap-1.5"
-                  title={c.title}
-                >
-                  {c.disciplina && <BookOpen className="w-3 h-3" strokeWidth={1.75} />}
-                  {c.disciplina ? curr.disciplinaNome(c.disciplina) : c.title}
-                </button>
-                {ativa && conversasNormais.length > 1 && (
-                  <button
-                    onClick={() => apagarConversa(c.id)}
-                    className="pr-2 opacity-70 hover:opacity-100"
-                    aria-label={t("chat.deleteAria")}
-                  >
-                    <Trash2 className="w-3 h-3" strokeWidth={1.75} />
-                  </button>
+                {editando ? (
+                  <div className="flex items-center gap-1 pl-3 pr-1 py-0.5">
+                    <input
+                      autoFocus
+                      value={tituloDraft}
+                      maxLength={TITULO_CONVERSA_MAX}
+                      onChange={(e) => setTituloDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); void confirmarEdicao(); }
+                        if (e.key === "Escape") { e.preventDefault(); cancelarEdicao(); }
+                      }}
+                      onBlur={() => void confirmarEdicao()}
+                      className={`bg-transparent outline-none text-xs w-[160px] ${ativa ? "text-white placeholder:text-white/60" : "text-foreground"}`}
+                    />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void confirmarEdicao()}
+                      className="opacity-80 hover:opacity-100"
+                      aria-label="Confirmar"
+                    >
+                      <Check className="w-3 h-3" strokeWidth={2} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => trocarConversa(c.id)}
+                      className="px-3 py-1.5 max-w-[180px] truncate inline-flex items-center gap-1.5"
+                      title={tituloVisivel}
+                    >
+                      {c.disciplina && <BookOpen className="w-3 h-3" strokeWidth={1.75} />}
+                      {tituloVisivel}
+                    </button>
+                    {!c.disciplina && (
+                      <button
+                        onClick={() => iniciarEdicao(c)}
+                        className="opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity px-1"
+                        aria-label="Renomear conversa"
+                        title="Renomear"
+                      >
+                        <Pencil className="w-3 h-3" strokeWidth={1.75} />
+                      </button>
+                    )}
+                    {ativa && conversasNormais.length > 1 && (
+                      <button
+                        onClick={() => apagarConversa(c.id)}
+                        className="pr-2 opacity-70 hover:opacity-100"
+                        aria-label={t("chat.deleteAria")}
+                      >
+                        <Trash2 className="w-3 h-3" strokeWidth={1.75} />
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             );
