@@ -816,6 +816,16 @@ export default function MapaMental() {
         >
           <Redo2 className="w-3.5 h-3.5" strokeWidth={1.75} />
         </button>
+        {!organizing && (
+          <button
+            onClick={() => void organizar()}
+            title={t("mindMap.organize", { defaultValue: "Organizar" })}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-white/85 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/30 transition-all backdrop-blur-md"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" strokeWidth={1.75} />
+            {t("mindMap.organize", { defaultValue: "Organizar" })}
+          </button>
+        )}
         <button
           onClick={() => setAdding(true)}
           className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-white/85 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/30 transition-all backdrop-blur-md shadow-[0_0_18px_rgba(167,139,250,0.18)]"
