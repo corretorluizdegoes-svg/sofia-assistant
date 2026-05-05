@@ -603,6 +603,165 @@ export default function MapaMental() {
     setSelected(node);
   }
 
+  // ─── Painel lateral: notes auto-save ──────────────────────
+  useEffect(() => {
+    if (!panelNode) {
+      setNotesDraft("");
+      setNotesSaveState("idle");
+      if (notesTimer.current) window.clearTimeout(notesTimer.current);
+      return;
+    }
+    setNotesDraft(panelNode.notes ?? "");
+    setNotesSaveState("idle");
+  }, [panelNode?.id]);
+
+  function handleNotesChange(val: string) {
+    setNotesDraft(val);
+    if (!panelNode) return;
+    setNotesSaveState("saving");
+    if (notesTimer.current) window.clearTimeout(notesTimer.current);
+    const id = panelNode.id;
+    notesTimer.current = window.setTimeout(async () => {
+      await updateNotes(id, val);
+      setNotesSaveState("saved");
+      window.setTimeout(() => setNotesSaveState((s) => (s === "saved" ? "idle" : s)), 1500);
+    }, 1000);
+  }
+
+  // Conexões do nó do painel
+  const panelConexoes = useMemo(() => {
+    if (!panelNode) return [] as MapNode[];
+    const out: MapNode[] = [];
+    for (const e of edges) {
+      const s = typeof e.source === "string" ? e.source : e.source.id;
+      const tt = typeof e.target === "string" ? e.target : e.target.id;
+      const otherId = s === panelNode.id ? tt : tt === panelNode.id ? s : null;
+      if (!otherId) continue;
+      const n = nodes.find((x) => x.id === otherId);
+      if (n) out.push(n);
+    }
+    return out;
+  }, [panelNode, edges, nodes]);
+
+  // Centraliza o mapa (zoom) em um node — usado pelos chips de conexão.
+  function focusNode(targetId: string) {
+    if (!svgRef.current) return;
+    const target = nodes.find((n) => n.id === targetId);
+    if (!target) return;
+    const w = svgRef.current.clientWidth;
+    const h = svgRef.current.clientHeight;
+    const tx = w / 2 - (target.x ?? 0) * 0.9;
+    const ty = h / 2 - (target.y ?? 0) * 0.9;
+    d3.select(svgRef.current)
+      .transition()
+      .duration(700)
+      .call(
+        d3.zoom<SVGSVGElement, unknown>().transform as never,
+        d3.zoomIdentity.translate(tx, ty).scale(0.9),
+      );
+    setPanelNode(target);
+  }
+
+  // Conversar com Sofia sobre este node
+  async function conversarSobreNode() {
+    if (!panelNode || !user) return;
+    const disciplina = encontrarDisciplina(panelNode.label)?.disciplina?.nome ?? null;
+    const { data } = await supabase
+      .from("conversations")
+      .insert({
+        user_id: user.id,
+        title: nodeLabel(panelNode),
+        disciplina,
+      })
+      .select()
+      .single();
+    if (data) navigate(`/app`);
+  }
+
+  // ─── Auto-organizar ───────────────────────────────────────
+  // Distribui nodes em 5 regiões do canvas por módulo, depois aplica
+  // d3-force só de repulsão dentro de cada região, anima 800ms e salva.
+  const REGIONS: Record<string, { cx: number; cy: number }> = {
+    matematica: { cx: 0, cy: 380 },
+    computacao: { cx: -560, cy: 380 },
+    inteligencia_artificial: { cx: 0, cy: 0 },
+    computacao_simbolica: { cx: -560, cy: -380 },
+    fisica_quantica: { cx: 560, cy: -380 },
+    convergencias: { cx: 560, cy: 380 },
+    custom: { cx: 0, cy: 0 },
+  };
+
+  async function organizar() {
+    if (organizing || nodes.length === 0) return;
+    setOrganizing(true);
+    setSelected(null);
+    setPanelNode(null);
+    setSelectedEdge(null);
+
+    // 1) Agrupa por módulo e calcula posições alvo dentro de cada região.
+    const buckets = new Map<string, MapNode[]>();
+    for (const n of nodes) {
+      const key = REGIONS[n.modulo_id] ? n.modulo_id : "custom";
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(n);
+    }
+    const targets: { id: string; x: number; y: number }[] = [];
+    for (const [mod, list] of buckets) {
+      const center = REGIONS[mod] ?? REGIONS.custom;
+      // Coloca em grid radial dentro da região
+      const tmp = list.map((n, i) => {
+        const ang = (i / Math.max(list.length, 1)) * Math.PI * 2;
+        const r = 40 + Math.sqrt(i) * 38;
+        return {
+          id: n.id,
+          x: center.cx + Math.cos(ang) * r,
+          y: center.cy + Math.sin(ang) * r,
+        };
+      });
+      // Espaçamento: pequena simulação de colisão localizada
+      type P = { id: string; x: number; y: number; vx: number; vy: number };
+      const pts: P[] = tmp.map((p) => ({ ...p, vx: 0, vy: 0 }));
+      const sim = d3
+        .forceSimulation(pts as unknown as d3.SimulationNodeDatum[])
+        .force("collide", d3.forceCollide(70))
+        .force("x", d3.forceX(center.cx).strength(0.08))
+        .force("y", d3.forceY(center.cy).strength(0.08))
+        .stop();
+      for (let i = 0; i < 80; i++) sim.tick();
+      pts.forEach((p) => targets.push({ id: p.id, x: p.x, y: p.y }));
+    }
+
+    // 2) Animação 800ms ease-in-out via d3 transitions sobre g.node.
+    if (gRef.current) {
+      const sel = d3
+        .select(gRef.current)
+        .select(".nodes")
+        .selectAll<SVGGElement, MapNode>("g.node");
+      sel
+        .transition()
+        .duration(800)
+        .ease(d3.easeCubicInOut)
+        .attrTween("transform", function (d) {
+          const target = targets.find((tt) => tt.id === d.id);
+          if (!target) return () => `translate(${d.x ?? 0},${d.y ?? 0})`;
+          const i = d3.interpolate([d.x ?? 0, d.y ?? 0], [target.x, target.y]);
+          return (k: number) => {
+            const [nx, ny] = i(k);
+            d.x = nx;
+            d.y = ny;
+            d.fx = nx;
+            d.fy = ny;
+            return `translate(${nx},${ny})`;
+          };
+        });
+    }
+
+    await new Promise((r) => setTimeout(r, 850));
+    await bulkUpdatePositions(targets);
+    if (simRef.current) simRef.current.stop();
+    setOrganizing(false);
+  }
+
   // Cores p/ borda do edgeCard (gradiente)
   const edgeCardColors = useMemo(() => {
     if (!edgeCard) return null;
