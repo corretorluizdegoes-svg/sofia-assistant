@@ -76,6 +76,8 @@ export function ChatSofia({ startMessage, onConsumeStartMessage }: Props) {
   const [arquivoAnexado, setArquivoAnexado] = useState<{ nome: string; conteudo: string } | null>(null);
   const [gerandoPacote, setGerandoPacote] = useState(false);
   const [comandSheet, setComandSheet] = useState(false);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [tituloDraft, setTituloDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { registrarInteracao, nivelAtual, xp, topicosExplorados, conquistas, totalMensagens } = useProgresso();
