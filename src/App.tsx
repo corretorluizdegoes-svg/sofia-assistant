@@ -5,7 +5,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { EditorMode } from "@/components/editor-mode";
 import Landing from "./pages/Landing";
 import SaibaMais from "./pages/SaibaMais";
 import Auth from "./pages/Auth";
@@ -53,7 +52,6 @@ const App = () => (
             />
             <Route path="*" element={<NotFound />} />
           </Routes>
-          <EditorMode />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

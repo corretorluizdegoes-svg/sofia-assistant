@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useIsAdmin } from "@/components/editor-mode/useIsAdmin";
+import { useAuth } from "@/contexts/AuthContext";
+import { isAdminEmail } from "@/lib/admin-config";
 
 /**
  * Modo Editor + Modo Comandante.
@@ -11,15 +12,12 @@ import { useIsAdmin } from "@/components/editor-mode/useIsAdmin";
  * - **Modo Comandante**: ELEVAÇÃO opcional sobre o Editor, ativada pela frase mágica
  *   "O Comando está no Centro." dentro do chat da Sofia. Adiciona análise estratégica
  *   e convocação de núcleos operacionais. Persistido em sessionStorage — some no logout.
- *
- * Para checagens granulares no UI:
- *   - `editorAtivo`  → admin logado (qualquer hora)
- *   - `comandanteAtivo` → admin logado + ritual feito
  */
 const STORAGE_KEY = "sofia.comandanteAtivo";
 
 export function useDevMode() {
-  const isAdmin = useIsAdmin();
+  const { user } = useAuth();
+  const isAdmin = isAdminEmail(user?.email);
   const [comandante, setComandante] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return sessionStorage.getItem(STORAGE_KEY) === "1";
@@ -44,15 +42,13 @@ export function useDevMode() {
     setComandante(false);
   }, []);
 
-  const editorAtivo = isAdmin;                 // sempre que admin logado
+  const editorAtivo = isAdmin;
   const comandanteAtivo = isAdmin && comandante;
 
   return {
-    // novos campos:
     editorAtivo,
     comandanteAtivo,
     tier: comandanteAtivo ? ("comandante" as const) : ("editor" as const),
-    // compat com código existente (active = comandante ativo):
     active: comandanteAtivo,
     isAdmin,
     activate,
