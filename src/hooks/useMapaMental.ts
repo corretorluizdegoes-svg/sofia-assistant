@@ -154,6 +154,7 @@ export function useMapaMental() {
             is_custom: n.is_custom,
             x: n.x,
             y: n.y,
+            notes: (n as { notes?: string | null }).notes ?? null,
             unplaced: isUnplaced,
             fx: isUnplaced ? null : n.x,
             fy: isUnplaced ? null : n.y,
