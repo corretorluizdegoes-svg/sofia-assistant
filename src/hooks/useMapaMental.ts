@@ -26,6 +26,9 @@ export type MapNode = {
   is_custom: boolean;
   x: number;
   y: number;
+  // True quando o node foi criado mas o usuário ainda não o posicionou.
+  // Sentinela: persistido como (x=0, y=0) no banco para is_custom=true.
+  unplaced?: boolean;
   // d3-force vai mutar fx/fy/vx/vy
   fx?: number | null;
   fy?: number | null;
@@ -136,16 +139,25 @@ export function useMapaMental() {
           })),
         );
       } else {
-        const mapped: MapNode[] = dbNodes.map((n) => ({
-          id: n.node_key,
-          label: n.label,
-          modulo_id: n.modulo_id ?? "custom",
-          glow_color: n.glow_color,
-          descricao: n.descricao,
-          is_custom: n.is_custom,
-          x: n.x,
-          y: n.y,
-        }));
+        const mapped: MapNode[] = dbNodes.map((n) => {
+          // Custom node sem posição persistida (sentinela 0,0) = "unplaced".
+          // Restantes ficam travados com fx/fy = posição salva pra não serem
+          // movidos pelo d3-force a cada reabertura do mapa.
+          const isUnplaced = n.is_custom && n.x === 0 && n.y === 0;
+          return {
+            id: n.node_key,
+            label: n.label,
+            modulo_id: n.modulo_id ?? "custom",
+            glow_color: n.glow_color,
+            descricao: n.descricao,
+            is_custom: n.is_custom,
+            x: n.x,
+            y: n.y,
+            unplaced: isUnplaced,
+            fx: isUnplaced ? null : n.x,
+            fy: isUnplaced ? null : n.y,
+          };
+        });
         setNodes(mapped);
         setEdges(
           (dbEdges ?? []).map((e) => ({
@@ -272,6 +284,8 @@ export function useMapaMental() {
 
   const addNode = useCallback((label: string) => {
     const id = `custom:${crypto.randomUUID()}`;
+    // Persistido como (0,0) — sentinela de "unplaced". Será posicionado
+    // pelo MapaMental na "Área de chegada" até o usuário arrastar pra fora.
     const node: MapNode = {
       id,
       label,
@@ -279,12 +293,12 @@ export function useMapaMental() {
       glow_color: moduloGlow.custom,
       descricao: null,
       is_custom: true,
-      x: (Math.random() - 0.5) * 200,
-      y: (Math.random() - 0.5) * 200,
+      x: 0,
+      y: 0,
+      unplaced: true,
     };
     setNodes((prev) => [...prev, node]);
     enqueue({ kind: "node-create", node });
-    // Salva imediatamente — não esperar o debounce
     void flush();
     void ganharXpMapa("no_criado", { label });
     undoStack.current.push({ kind: "node-add", node });
@@ -292,6 +306,21 @@ export function useMapaMental() {
     bumpHistory();
     return node;
   }, [enqueue, flush]);
+
+  // Marca um node como "placed" (saiu da área de chegada). Atualiza estado
+  // local + persiste posição. Fire-and-forget.
+  const markPlaced = useCallback(
+    (id: string, x: number, y: number) => {
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === id ? { ...n, x, y, unplaced: false, fx: x, fy: y } : n,
+        ),
+      );
+      enqueue({ kind: "node-pos", node_key: id, x, y });
+      void flush();
+    },
+    [enqueue, flush],
+  );
 
   const addEdge = useCallback((sourceId: string, targetId: string, fromHistory = false) => {
     if (sourceId === targetId) return;
@@ -455,6 +484,7 @@ export function useMapaMental() {
     updateNodePosition,
     commitNodeMove,
     addNode,
+    markPlaced,
     addEdge,
     removeEdge,
     undo,

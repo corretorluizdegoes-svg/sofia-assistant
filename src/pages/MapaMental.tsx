@@ -33,6 +33,27 @@ type EdgeCardState = {
 
 const EDGE_FUN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sofia-explicar-conexao`;
 
+// "Área de chegada" — retângulo em coordenadas do mundo (SVG interno) onde
+// nodes recém-criados sem posição salva ficam empilhados pulsando até o
+// usuário arrastá-los pra fora. Coordenadas escolhidas pra cair no canto
+// inferior esquerdo no zoom inicial (translate(w/2, h/2) scale(0.7)).
+const ARRIVAL_AREA = { x: -780, y: 220, w: 280, h: 420 };
+const ARRIVAL_SLOT_H = 70;
+function arrivalSlotPos(index: number) {
+  return {
+    x: ARRIVAL_AREA.x + ARRIVAL_AREA.w / 2,
+    y: ARRIVAL_AREA.y + 40 + index * ARRIVAL_SLOT_H,
+  };
+}
+function pointInArrival(x: number, y: number): boolean {
+  return (
+    x >= ARRIVAL_AREA.x &&
+    x <= ARRIVAL_AREA.x + ARRIVAL_AREA.w &&
+    y >= ARRIVAL_AREA.y &&
+    y <= ARRIVAL_AREA.y + ARRIVAL_AREA.h
+  );
+}
+
 export default function MapaMental() {
   const { t, i18n } = useTranslation();
   const curr = useCurriculoI18n();
@@ -47,6 +68,7 @@ export default function MapaMental() {
     updateNodePosition,
     commitNodeMove,
     addNode,
+    markPlaced,
     addEdge,
     removeEdge,
     undo,
@@ -100,7 +122,21 @@ export default function MapaMental() {
     svg.call(zoom.transform, d3.zoomIdentity.translate(w / 2, h / 2).scale(0.7));
 
     // ── Cópias internas ──
-    const simNodes: MapNode[] = nodes.map((n) => ({ ...n }));
+    // Nodes "unplaced" vão pra Área de chegada com fx/fy travados em slots.
+    // Nodes posicionados (com fx/fy vindos do banco) ficam estáticos onde
+    // o usuário os deixou — d3-force ignora qualquer node com fx/fy.
+    let arrivalIdx = 0;
+    const simNodes: MapNode[] = nodes.map((n) => {
+      const copy: MapNode = { ...n };
+      if (n.unplaced) {
+        const slot = arrivalSlotPos(arrivalIdx++);
+        copy.x = slot.x;
+        copy.y = slot.y;
+        copy.fx = slot.x;
+        copy.fy = slot.y;
+      }
+      return copy;
+    });
     const simLinks = edges
       .map((e) => ({
         source: typeof e.source === "string" ? e.source : e.source.id,
@@ -121,7 +157,10 @@ export default function MapaMental() {
       (l as unknown as { gid: string }).gid = gid;
     });
 
-    // ── Force simulation: muito mais espaçoso ──
+    // ── Force simulation ──
+    // Alpha baixo e decay rápido: a maioria dos nodes já vem com fx/fy
+    // travados, então só os realmente novos/unplaced precisam acomodar.
+    const temUnplaced = simNodes.some((n) => n.unplaced);
     const sim = d3
       .forceSimulation<MapNode>(simNodes)
       .force(
@@ -129,15 +168,15 @@ export default function MapaMental() {
         d3
           .forceLink<MapNode, { source: string | MapNode; target: string | MapNode }>(simLinks)
           .id((d) => d.id)
-          .distance(280)        // ↑ distância
-          .strength(0.08),      // ↓ atração
+          .distance(280)
+          .strength(0.08),
       )
-      .force("charge", d3.forceManyBody().strength(-900))   // ↑ repulsão
+      .force("charge", d3.forceManyBody().strength(-900))
       .force("collide", d3.forceCollide<MapNode>().radius(70))
       .force("x", d3.forceX(0).strength(0.02))
       .force("y", d3.forceY(0).strength(0.02))
-      .alpha(0.9)
-      .alphaDecay(0.025);
+      .alpha(temUnplaced ? 0.4 : 0.05)
+      .alphaDecay(0.05);
     simRef.current = sim;
 
     // ── Render links ──
@@ -228,13 +267,16 @@ export default function MapaMental() {
       .attr("opacity", (d) => (pendingSource === d.id ? 0.55 : 0.18));
 
     // Drag
+    // Comportamento padrão: ao soltar, mantém fx/fy = posição final (node
+    // trava onde foi solto, persistido no banco).
+    // Se o node estava "unplaced" (Área de chegada): se for solto FORA da
+    // área → vira placed; se for solto DENTRO → continua unplaced no slot.
     const drag = d3
       .drag<SVGGElement, MapNode>()
       .on("start", (event, d) => {
         if (!event.active) sim.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
-        // guarda posição inicial p/ histórico (undo)
         (d as unknown as { __from?: { x: number; y: number } }).__from = {
           x: d.x ?? 0,
           y: d.y ?? 0,
@@ -246,9 +288,39 @@ export default function MapaMental() {
       })
       .on("end", (event, d) => {
         if (!event.active) sim.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-        if (typeof d.x === "number" && typeof d.y === "number") {
+        if (typeof d.x !== "number" || typeof d.y !== "number") return;
+
+        const wasUnplaced = !!d.unplaced;
+        const stillInArrival = pointInArrival(d.x, d.y);
+
+        if (wasUnplaced && stillInArrival) {
+          // Manteve no berçário — re-trava no slot original e não persiste
+          const from = (d as unknown as { __from?: { x: number; y: number } }).__from;
+          d.fx = from?.x ?? d.x;
+          d.fy = from?.y ?? d.y;
+          d.x = d.fx;
+          d.y = d.fy;
+          // força re-render do glow pra parar/continuar pulsando se mudou estado
+          d3.select(this as unknown as Element);
+          return;
+        }
+
+        // Caso normal: trava no destino e persiste
+        d.fx = d.x;
+        d.fy = d.y;
+
+        if (wasUnplaced) {
+          d.unplaced = false;
+          markPlaced(d.id, d.x, d.y);
+          // remove pulsação imediatamente
+          d3.select(gRef.current!)
+            .select(".nodes")
+            .selectAll<SVGGElement, MapNode>("g.node")
+            .filter((nn) => nn.id === d.id)
+            .select<SVGCircleElement>("circle.glow")
+            .interrupt("pulse")
+            .attr("opacity", 0.18);
+        } else {
           const from = (d as unknown as { __from?: { x: number; y: number } }).__from;
           if (from) {
             commitNodeMove(d.id, from, { x: d.x, y: d.y });
@@ -258,6 +330,23 @@ export default function MapaMental() {
         }
       });
     nodeSel.call(drag);
+
+    // ── Pulsação dos nodes "unplaced" (Área de chegada) ──
+    function tickPulse() {
+      nodeSel
+        .filter((d) => !!d.unplaced)
+        .select<SVGCircleElement>("circle.glow")
+        .transition("pulse")
+        .duration(900)
+        .attr("opacity", 0.55)
+        .attr("r", 28)
+        .transition()
+        .duration(900)
+        .attr("opacity", 0.18)
+        .attr("r", 22)
+        .on("end", tickPulse);
+    }
+    tickPulse();
 
     // Tick
     sim.on("tick", () => {
@@ -502,6 +591,32 @@ export default function MapaMental() {
       {/* SVG */}
       <svg ref={svgRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
         <g ref={gRef}>
+          {nodes.some((n) => n.unplaced) && (
+            <g className="arrival-area" pointerEvents="none">
+              <rect
+                x={ARRIVAL_AREA.x}
+                y={ARRIVAL_AREA.y}
+                width={ARRIVAL_AREA.w}
+                height={ARRIVAL_AREA.h}
+                rx={20}
+                fill="rgba(167,139,250,0.05)"
+                stroke="rgba(167,139,250,0.35)"
+                strokeWidth={1}
+                strokeDasharray="6 6"
+              />
+              <text
+                x={ARRIVAL_AREA.x + ARRIVAL_AREA.w / 2}
+                y={ARRIVAL_AREA.y + 22}
+                textAnchor="middle"
+                fontSize={11}
+                fill="rgba(167,139,250,0.7)"
+                fontFamily="Plus Jakarta Sans, system-ui"
+                style={{ letterSpacing: "0.15em", textTransform: "uppercase" }}
+              >
+                {t("mindMap.arrivalArea", { defaultValue: "Área de chegada" })}
+              </text>
+            </g>
+          )}
           <g className="links" />
           <g className="nodes" />
         </g>
