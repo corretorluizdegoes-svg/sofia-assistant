@@ -464,6 +464,36 @@ export default function MapaMental() {
       .attr("opacity", (d) => (pendingSource === d.id ? 0.55 : 0.18));
   }, [pendingSource]);
 
+  // Realça edge selecionada (e os 2 nodes conectados); apaga o resto.
+  useEffect(() => {
+    if (!gRef.current) return;
+    const root = d3.select(gRef.current);
+    const lines = root.select(".links").selectAll<SVGLineElement, { source: MapNode | string; target: MapNode | string }>("line");
+    const nodesSel = root.select(".nodes").selectAll<SVGGElement, MapNode>("g.node");
+    if (!selectedEdge) {
+      lines.attr("stroke-opacity", 1).attr("stroke-width", 1.5);
+      nodesSel.style("opacity", 1);
+      nodesSel.select<SVGCircleElement>("circle.glow").attr("r", 22);
+      return;
+    }
+    const { s, t: tt } = selectedEdge;
+    lines
+      .attr("stroke-opacity", (d) => {
+        const ds = typeof d.source === "string" ? d.source : (d.source as MapNode).id;
+        const dt = typeof d.target === "string" ? d.target : (d.target as MapNode).id;
+        return (ds === s && dt === tt) || (ds === tt && dt === s) ? 1 : 0.2;
+      })
+      .attr("stroke-width", (d) => {
+        const ds = typeof d.source === "string" ? d.source : (d.source as MapNode).id;
+        const dt = typeof d.target === "string" ? d.target : (d.target as MapNode).id;
+        return (ds === s && dt === tt) || (ds === tt && dt === s) ? 3.2 : 1.5;
+      });
+    nodesSel.style("opacity", (d) => (d.id === s || d.id === tt ? 1 : 0.35));
+    nodesSel
+      .select<SVGCircleElement>("circle.glow")
+      .attr("r", (d) => (d.id === s || d.id === tt ? 32 : 22));
+  }, [selectedEdge, nodes.length, edges.length]);
+
   // Tecla Escape
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
