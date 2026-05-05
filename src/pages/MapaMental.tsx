@@ -898,55 +898,96 @@ export default function MapaMental() {
         </div>
       )}
 
-      {/* Card flutuante do nó */}
-      {selected && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 w-[min(420px,90vw)] bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-5 text-white animate-fade-in">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span
-                className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ background: selected.glow_color, boxShadow: `0 0 12px ${selected.glow_color}` }}
-              />
-              <h2 className="font-display font-semibold text-lg leading-tight truncate">
-                {nodeLabel(selected)}
-              </h2>
+      {/* Painel lateral do node */}
+      {panelNode && (
+        <aside
+          className="absolute top-0 right-0 bottom-0 z-30 w-[320px] bg-white/5 backdrop-blur-2xl border-l border-white/10 text-white animate-slide-in-right flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="p-5 border-b border-white/10">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ background: panelNode.glow_color, boxShadow: `0 0 12px ${panelNode.glow_color}` }}
+                />
+                <h2 className="font-display font-semibold text-base leading-tight truncate">
+                  {nodeLabel(panelNode)}
+                </h2>
+              </div>
+              <button onClick={() => setPanelNode(null)} className="text-white/40 hover:text-white shrink-0">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button onClick={() => setSelected(null)} className="text-white/40 hover:text-white">
-              <X className="w-4 h-4" />
-            </button>
+            {panelNode.descricao && (
+              <p className="mt-2 text-xs text-white/65 leading-relaxed">{panelNode.descricao}</p>
+            )}
+            {panelConexoes.length > 0 && (
+              <div className="mt-3">
+                <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1.5">
+                  {t("mindMap.connectedTo")}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {panelConexoes.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => focusNode(c.id)}
+                      className="text-[11px] bg-white/10 hover:bg-white/20 rounded-full px-2 py-0.5 text-white/85 transition-colors"
+                      style={{ boxShadow: `inset 0 0 0 1px ${c.glow_color}40` }}
+                    >
+                      {nodeLabel(c)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          {selected.descricao && (
-            <p className="mt-2 text-xs text-white/70 leading-relaxed">{selected.descricao}</p>
-          )}
-          {selectedConexoes.length > 0 && (
-            <div className="mt-3">
-              <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1.5">
-                {t("mindMap.connectedTo")}
+
+          {/* Body — anotações */}
+          <div className="flex-1 p-4 flex flex-col min-h-0">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-white/40">
+                {t("mindMap.notesTitle", { defaultValue: "Anotações" })}
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {selectedConexoes.map((l, i) => (
-                  <span key={i} className="text-[11px] bg-white/10 rounded-full px-2 py-0.5 text-white/80">
-                    {l}
-                  </span>
-                ))}
+              <div className="text-[10px] text-white/40 flex items-center gap-1 h-3.5">
+                {notesSaveState === "saving" && (
+                  <>
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    <span>{t("mindMap.notesSaving", { defaultValue: "salvando…" })}</span>
+                  </>
+                )}
+                {notesSaveState === "saved" && (
+                  <>
+                    <Check className="w-2.5 h-2.5" />
+                    <span>{t("mindMap.notesSaved", { defaultValue: "salvo" })}</span>
+                  </>
+                )}
               </div>
             </div>
-          )}
-          <div className="mt-4 flex gap-2">
+            <Textarea
+              value={notesDraft}
+              onChange={(e) => handleNotesChange(e.target.value)}
+              placeholder={t("mindMap.notesPlaceholder", {
+                defaultValue: "Suas anotações sobre este conceito...",
+              })}
+              className="flex-1 resize-none bg-white/5 border-white/10 text-white placeholder:text-white/30 text-sm leading-relaxed rounded-2xl"
+            />
+          </div>
+
+          {/* Rodapé */}
+          <div className="p-4 border-t border-white/10">
             <Button
               size="sm"
-              variant="outline"
-              className="bg-white/5 border-white/10 text-white hover:bg-white/10 rounded-full text-xs"
-              onClick={() => {
-                setPendingSource(selected.id);
-                setMode("connecting");
-                setSelected(null);
-              }}
+              onClick={() => void conversarSobreNode()}
+              className="w-full bg-white/10 hover:bg-white/20 border border-white/15 text-white rounded-full text-xs"
             >
-              {t("mindMap.connectToOther")}
+              <MessageCircle className="w-3.5 h-3.5 mr-1.5" strokeWidth={1.75} />
+              {t("mindMap.talkSofia", { defaultValue: "Conversar com Sofia sobre este tema" })}
             </Button>
           </div>
-        </div>
+        </aside>
       )}
 
       {/* Card flutuante da CONEXÃO (sobre a linha) */}
