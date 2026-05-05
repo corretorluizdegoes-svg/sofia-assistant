@@ -62,6 +62,8 @@ export default function MapaMental() {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const simRef = useRef<d3.Simulation<MapNode, undefined> | null>(null);
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     nodes,
     edges,
@@ -73,6 +75,8 @@ export default function MapaMental() {
     markPlaced,
     addEdge,
     removeEdge,
+    updateNotes,
+    bulkUpdatePositions,
     undo,
     redo,
     canUndo,
@@ -85,6 +89,12 @@ export default function MapaMental() {
   const [edgeCard, setEdgeCard] = useState<EdgeCardState | null>(null);
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState("");
+  const [organizing, setOrganizing] = useState(false);
+  const [selectedEdge, setSelectedEdge] = useState<{ s: string; t: string } | null>(null);
+  const [panelNode, setPanelNode] = useState<MapNode | null>(null);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSaveState, setNotesSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const notesTimer = useRef<number | null>(null);
 
   // refs sempre atuais p/ handlers do d3
   const modeRef = useRef(mode);
