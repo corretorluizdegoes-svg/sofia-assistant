@@ -122,7 +122,21 @@ export default function MapaMental() {
     svg.call(zoom.transform, d3.zoomIdentity.translate(w / 2, h / 2).scale(0.7));
 
     // ── Cópias internas ──
-    const simNodes: MapNode[] = nodes.map((n) => ({ ...n }));
+    // Nodes "unplaced" vão pra Área de chegada com fx/fy travados em slots.
+    // Nodes posicionados (com fx/fy vindos do banco) ficam estáticos onde
+    // o usuário os deixou — d3-force ignora qualquer node com fx/fy.
+    let arrivalIdx = 0;
+    const simNodes: MapNode[] = nodes.map((n) => {
+      const copy: MapNode = { ...n };
+      if (n.unplaced) {
+        const slot = arrivalSlotPos(arrivalIdx++);
+        copy.x = slot.x;
+        copy.y = slot.y;
+        copy.fx = slot.x;
+        copy.fy = slot.y;
+      }
+      return copy;
+    });
     const simLinks = edges
       .map((e) => ({
         source: typeof e.source === "string" ? e.source : e.source.id,
@@ -143,7 +157,10 @@ export default function MapaMental() {
       (l as unknown as { gid: string }).gid = gid;
     });
 
-    // ── Force simulation: muito mais espaçoso ──
+    // ── Force simulation ──
+    // Alpha baixo e decay rápido: a maioria dos nodes já vem com fx/fy
+    // travados, então só os realmente novos/unplaced precisam acomodar.
+    const temUnplaced = simNodes.some((n) => n.unplaced);
     const sim = d3
       .forceSimulation<MapNode>(simNodes)
       .force(
@@ -151,15 +168,15 @@ export default function MapaMental() {
         d3
           .forceLink<MapNode, { source: string | MapNode; target: string | MapNode }>(simLinks)
           .id((d) => d.id)
-          .distance(280)        // ↑ distância
-          .strength(0.08),      // ↓ atração
+          .distance(280)
+          .strength(0.08),
       )
-      .force("charge", d3.forceManyBody().strength(-900))   // ↑ repulsão
+      .force("charge", d3.forceManyBody().strength(-900))
       .force("collide", d3.forceCollide<MapNode>().radius(70))
       .force("x", d3.forceX(0).strength(0.02))
       .force("y", d3.forceY(0).strength(0.02))
-      .alpha(0.9)
-      .alphaDecay(0.025);
+      .alpha(temUnplaced ? 0.4 : 0.05)
+      .alphaDecay(0.05);
     simRef.current = sim;
 
     // ── Render links ──
